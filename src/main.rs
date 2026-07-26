@@ -23,6 +23,7 @@ use ratatui::{
     Terminal,
 };
 use std::collections::VecDeque;
+use std::env;
 use std::io::stdout;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -61,15 +62,20 @@ fn rgba_to_i420(rgba: &[u8], width: u32, height: u32) -> I420Buffer {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let server_url = "wss://tatsuya-almaserver.tailc98924.ts.net";
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkZXZrZXkiLCJzdWIiOiJhcmNoLXVzZXIiLCJleHAiOjE3ODUxMjg5MDksIm5iZiI6MTc4NTA0MjUwOSwiaWF0IjoxNzg1MDQyNTA5LCJpZGVudGl0eSI6ImFyY2gtdXNlciIsIm5hbWUiOiJhcmNoLXVzZXIiLCJ2aWRlbyI6eyJyb29tSm9pbiI6dHJ1ZSwicm9vbSI6InRlc3Qtcm9vbSJ9fQ.6PBMFKDUSiRqiiYjEXdR4PRUUH55uSdMqBLNkkEe6WE";
+    // .env ファイルの読み込み
+    dotenvy::dotenv().ok();
+
+    let server_url =
+        env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set in .env or environment variables");
+    let token = env::var("LIVEKIT_TOKEN")
+        .expect("LIVEKIT_TOKEN is not set in .env or environment variables");
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     // 1. LiveKit Room Connection
-    let room_result = Room::connect(server_url, token, RoomOptions::default()).await;
+    let room_result = Room::connect(&server_url, &token, RoomOptions::default()).await;
 
     let mut error_msg = String::new();
     let (room, mut rx) = match room_result {
@@ -110,7 +116,7 @@ async fn main() -> Result<()> {
             .await;
 
         if let Ok(p) = pub_res {
-            p.unmute(); // 同期メソッド呼び出し
+            p.unmute();
             audio_pub = Some(p);
         }
 
@@ -143,7 +149,7 @@ async fn main() -> Result<()> {
 
                 if let Ok(stream) = input_stream {
                     let _ = stream.play();
-                    std::mem::forget(stream); // Keep audio stream active
+                    std::mem::forget(stream);
                 }
             }
         }
@@ -191,7 +197,7 @@ async fn main() -> Result<()> {
                             };
                             video_source.capture_frame(&video_frame);
                         }
-                        std::thread::sleep(Duration::from_millis(33)); // ~30 FPS
+                        std::thread::sleep(Duration::from_millis(33));
                     }
                 }
             }

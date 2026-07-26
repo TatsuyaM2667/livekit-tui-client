@@ -8,8 +8,9 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 crossterm = "0.28"
 ratatui = "0.29"
-# livekit クレート自体に TLS フィーチャーを指定する
+# livekit クレート自体に TLS フィーチャーを指定
 livekit = { version = "0.7", features = ["native-tls"] }
 cpal = "0.15"
 nokhwa = { version = "0.10", features = ["input-native"] }
 futures-util = "0.3"
+dotenvy = "0.15"
