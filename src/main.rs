@@ -22,6 +22,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Terminal,
 };
+use std::collections::VecDeque;
 use std::io::stdout;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -47,7 +48,7 @@ fn rgba_to_i420(rgba: &[u8], width: u32, height: u32) -> I420Buffer {
 
             if y % 2 == 0 && x % 2 == 0 {
                 let u_val = (-0.148 * r - 0.291 * g + 0.439 * b + 128.0) as u8;
-                let v_val = (0.439 * r - 0.368 * g - 0.071 * b + 128.0) as u8;
+                let v_val = (0.439 * r - 0.368 * g + 0.071 * b + 128.0) as u8;
                 let uv_x = x / 2;
                 let uv_y = y / 2;
                 data_u[uv_y * (stride_u as usize) + uv_x] = u_val;
@@ -109,6 +110,7 @@ async fn main() -> Result<()> {
             .await;
 
         if let Ok(p) = pub_res {
+            p.unmute(); // 同期メソッド呼び出し
             audio_pub = Some(p);
         }
 
@@ -201,7 +203,6 @@ async fn main() -> Result<()> {
         while let Some(event) = rx.recv().await {
             if let RoomEvent::TrackSubscribed { track, .. } = event {
                 if let RemoteTrack::Audio(audio_track) = track {
-                    // cpal::Stream が !Send であるため、OS標準スレッド内で block_on して実行する
                     let handle = tokio::runtime::Handle::current();
                     std::thread::spawn(move || {
                         handle.block_on(async move {
@@ -211,7 +212,8 @@ async fn main() -> Result<()> {
 
                             if let Some(device) = host.default_output_device() {
                                 if let Ok(config) = device.default_output_config() {
-                                    let sample_buffer = Arc::new(Mutex::new(Vec::<f32>::new()));
+                                    let sample_buffer =
+                                        Arc::new(Mutex::new(VecDeque::<f32>::new()));
                                     let buf_clone = sample_buffer.clone();
 
                                     let stream = device.build_output_stream(
@@ -219,11 +221,7 @@ async fn main() -> Result<()> {
                                         move |data: &mut [f32], _: &_| {
                                             let mut buf = buf_clone.lock().unwrap();
                                             for sample in data.iter_mut() {
-                                                *sample = if !buf.is_empty() {
-                                                    buf.remove(0)
-                                                } else {
-                                                    0.0
-                                                };
+                                                *sample = buf.pop_front().unwrap_or(0.0);
                                             }
                                         },
                                         move |err| eprintln!("Audio output error: {}", err),
@@ -235,7 +233,7 @@ async fn main() -> Result<()> {
                                         while let Some(frame) = native_stream.next().await {
                                             let mut buf = sample_buffer.lock().unwrap();
                                             for &s in frame.data.iter() {
-                                                buf.push((s as f32) / 32768.0);
+                                                buf.push_back((s as f32) / 32768.0);
                                             }
                                         }
                                     }
