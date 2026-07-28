@@ -1,81 +1,96 @@
 # LiveKit TUI Client
 
-RustとRatatuiを使って構築された、ターミナル上で動作するビデオ・音声通話クライアントです。
-内部で `terminal-pixel-animation` を用いて、リモートからの映像をターミナル上に直接半角ブロック（Half-block）で描画します。
+RustとRatatuiを使って構築された、ターミナル上で動作するSNS型ビデオ・音声通話クライアントです。
+ログインしてオンラインのユーザー一覧を確認し、好きな相手を選んで通話できます。
 
 ## 必要な環境 (Prerequisites)
 
 - **Rust** (最新の安定版)
 - **Odin** & **Zig** (`terminal-pixel-animation` のビルドに必要)
 - **Webカメラ** / **マイク** が接続されていること
-- **LiveKit Server** (LiveKit Cloud、またはセルフホストの AlmaServer / LiveKit サーバー)
+- **LiveKit Server** (セルフホストのLiveKitサーバー)
 
-## セットアップ手順 (Local Setup)
+## アーキテクチャ概要
 
-1. リポジトリをクローンまたはダウンロードします。
-2. プロジェクトのルートディレクトリ（この `README.md` がある場所）に `.env` ファイルを作成し、以下の内容を記述します。
-
-```env
-LIVEKIT_URL=wss://<YOUR-LIVEKIT-SERVER-URL>
-LIVEKIT_TOKEN=<YOUR-ACCESS-TOKEN>
+```
+[Client A (TUI)] <--WebSocket--> [Signaling Server] <--WebSocket--> [Client B (TUI)]
+                                        |
+                          (JWTトークンを生成してクライアントに配布)
+                                        |
+[Client A] <----WebRTC (via LiveKit)----> [Client B]
 ```
 
-3. ビルド＆実行します。
-```bash
-cargo run --release
-```
-
-※ 映像を描画するため、ターミナルは **True Color (24-bitカラー)** に対応している必要があります (Alacritty, WezTerm, iTerm2 など推奨)。
+- **シグナリングサーバー** (`src/bin/server.rs`): オンラインユーザーの管理と着信通知を担当
+- **クライアント** (`src/bin/client.rs`): TUI上でログイン・ユーザー選択・通話を行う
 
 ---
 
-## 別デバイス（他のPCなど）でのセットアップ方法
+## セットアップ手順
 
-このTUIアプリを使って2台以上のデバイスで通話するには、**共通のLiveKitサーバー（Room）**に接続する必要があります。
+### 1. `.env` ファイルの設定
 
-### 1. LiveKit サーバーの準備
-一番簡単な方法は [LiveKit Cloud (無料枠あり)](https://cloud.livekit.io/) を使う方法です。
-もしくは、AlmaServerやVPS上でTailscaleを使ってセルフホストしたLiveKitサーバーを用意します。
+プロジェクトルートの `.env` を以下のように設定します。
 
-### 2. アクセストークン (Token) の発行
-LiveKitに接続するためには、デバイスごとに**異なる参加者名 (Participant Identity)** を持ったトークンを発行する必要があります。
-（同じIdentityのトークンで複数デバイスから接続すると、後から接続したデバイスにキックされてしまいます）
-
-LiveKit Cloudのコンソール、または LiveKit CLI (`lk` コマンド) を使ってトークンを2つ発行します。
-
-**デバイスA用（例：PC1）:**
-- Room: `test-room`
-- Identity: `user-1`
-- 権限: `canPublish`, `canSubscribe` を付与
-
-**デバイスB用（例：PC2）:**
-- Room: `test-room`
-- Identity: `user-2`
-- 権限: `canPublish`, `canSubscribe` を付与
-
-### 3. デバイスごとの `.env` 設定
-
-**デバイスA (PC1) の `.env`**
 ```env
-LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_TOKEN=ey... (user-1用に発行したトークン)
+# LiveKit ServerのURL (wss://プロトコル)
+LIVEKIT_URL=wss://your-livekit-server.example.com
+
+# LiveKit の API Key と Secret
+# (LiveKit サーバーの設定に合わせてください)
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=your_secret_here
+
+# シグナリングサーバーのURL (クライアントが接続するアドレス)
+# ローカルテスト: ws://127.0.0.1:3000/ws
+# 本番環境:       ws://your-server-ip:3000/ws
+SIGNALING_URL=ws://127.0.0.1:3000/ws
 ```
 
-**デバイスB (PC2) の `.env`**
-```env
-LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_TOKEN=ey... (user-2用に発行したトークン)
+### 2. シグナリングサーバーの起動
+
+シグナリングサーバーは、誰がオンラインかを管理し、通話の開始（発信・着信通知）を仲介します。
+サーバーが動いているPCかVPS上で以下を実行します。
+
+```bash
+cargo run --bin server
 ```
 
-### 4. アプリの起動
-両方のデバイスでソースコードを取得し、それぞれ `cargo run --release` を実行します。
-お互いの `.env` が同じ `LIVEKIT_URL` を指しており、かつトークンの `Room` 名が一致していれば、自動的にお互いの映像と音声がターミナル上に流れてきます。
+> サーバーはポート `3000` でリッスンします。外部からアクセスさせる場合は、ファイアウォールでポート `3000` (TCP) を開放してください。
+
+### 3. クライアントの起動
+
+通話したい各デバイスで以下を実行します。
+
+```bash
+cargo run --bin client
+```
+
+起動後、ユーザー名を入力してログインするとオンラインユーザー一覧が表示されます。
+
+---
+
+## 使い方
+
+| 画面 | 操作キー |
+|------|---------|
+| **ログイン画面** | 名前を入力して `[Enter]` |
+| **ユーザー一覧** | `[↑↓]` で選択、`[Enter]` で発信、`[q]` で終了 |
+| **着信画面** | `[y]` で受話、`[n]` で拒否 |
+| **通話中** | `[m]` でマイクOn/Off、`[q]` で通話終了 |
+
+---
+
+## 別デバイスとの通話方法
+
+1. シグナリングサーバーをインターネットに公開されているVPS（またはポート転送したPC）で起動します。
+2. 各デバイスの `.env` の `SIGNALING_URL` をそのサーバーのアドレスに設定します。
+3. 各デバイスで `cargo run --bin client` を実行し、お互いに別々のユーザー名でログインします。
+4. ユーザー一覧から相手を選択して `[Enter]` を押すと着信通知が飛び、相手が `[y]` を押すと通話が始まります。
 
 ---
 
 ## トラブルシューティング
 
-- **`validate request timed out` エラーが出る場合**
-  `.env` に記載された `LIVEKIT_URL` にネットワーク的に到達できていないか、URLが間違っている（`https://` ではなく `wss://` を指定しているか等）可能性があります。
-- **Odin/Zigのコンパイルエラー**
-  `odin` コマンドと `zig` コマンドにパスが通っていることを確認してください。
+- **シグナリングサーバーに繋がらない場合**: `SIGNALING_URL` のIPアドレスやポートが正しいか確認してください。
+- **LiveKitに繋がらない場合**: `LIVEKIT_URL` が正しいか (wss://) 、`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` がサーバーの設定と一致しているか確認してください。
+- **映像が映らない場合**: ターミナルが True Color (24-bit) に対応しているか確認してください (Alacritty, WezTerm, iTerm2 など)。
