@@ -22,6 +22,7 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
     let header_text = match state.screen {
         AppScreen::Login => " Login ".to_string(),
         AppScreen::ContactList => format!(" Welcome, {}! | Contacts ", state.username),
+        AppScreen::Settings => format!(" Settings | {} ", state.username),
         AppScreen::Ringing { .. } | AppScreen::Calling { .. } => " Calling... ".to_string(),
         AppScreen::InCall => {
             let mic_status = if state.is_muted { "OFF (Muted)" } else { "ON (Active)" };
@@ -90,6 +91,46 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
             let list = List::new(items)
                 .block(Block::default().title(" Select user to call (Up/Down/Enter) ").borders(Borders::ALL));
             frame.render_widget(list, main_chunks[1]);
+        }
+        AppScreen::Settings => {
+            // Same layout as Login form but for editing settings after login
+            let fields = vec![
+                ("LiveKit URL", &state.livekit_url, 0usize),
+                ("API Key",     &state.api_key,     1),
+                ("API Secret",  &state.api_secret,  2),
+            ];
+
+            let mut lines = vec![
+                Line::from(Span::styled("Connection Settings", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                Line::from(""),
+                Line::from(Span::styled("Changes take effect on next login.", Style::default().fg(Color::DarkGray))),
+                Line::from(""),
+            ];
+
+            for (label, val, idx) in &fields {
+                let cursor = if state.active_input_index == *idx { "\u{2588}" } else { "" };
+                let prefix = if state.active_input_index == *idx { "> " } else { "  " };
+                let display_val = if *idx == 2 && !val.is_empty() {
+                    "*".repeat(val.len())
+                } else {
+                    (*val).clone()
+                };
+                let style = if state.active_input_index == *idx {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("{}{}: {}{}", prefix, label, display_val, cursor),
+                    style,
+                )));
+                lines.push(Line::from(""));
+            }
+
+            let widget = Paragraph::new(lines)
+                .alignment(Alignment::Left)
+                .block(Block::default().borders(Borders::ALL).padding(ratatui::widgets::Padding::new(4, 4, 2, 2)));
+            frame.render_widget(widget, main_chunks[1]);
         }
         AppScreen::Calling { target } => {
             let info = format!("Ringing {}...\n\nWaiting for answer...", target);
@@ -233,11 +274,12 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
     }
 
     let footer_text = match state.screen {
-        AppScreen::Login => " [Tab] Next Field | [Enter] Connect | [q] Quit ",
-        AppScreen::ContactList => " [Up/Down] Navigate | [Enter] Call | [q] Quit ",
+        AppScreen::Login    => " [Tab] Next Field | [Enter] Connect | [Esc] Quit ",
+        AppScreen::ContactList => " [Up/Down] Navigate | [Enter] Call | [s] Settings | [q] Quit ",
+        AppScreen::Settings => " [Tab] Next Field | [Enter] Save & Back | [Esc] Cancel ",
         AppScreen::Ringing { .. } => " [y] Accept | [n] Reject | [q] Quit ",
         AppScreen::Calling { .. } => " [q] Quit ",
-        AppScreen::InCall => " [m] Toggle Mic | [r] Toggle Renderer | [q] End Call ",
+        AppScreen::InCall   => " [m] Toggle Mic | [r] Toggle Renderer | [q] End Call ",
         AppScreen::Error(_) => " [Any Key] Dismiss ",
     };
     

@@ -8,7 +8,7 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use livekit::prelude::*;
 use livekit_tui_client::{
     app_state::{AppScreen, AppState},
-    audio, events,
+    audio, config, events,
     shared::SignalingMessage,
     tui, video,
 };
@@ -93,6 +93,7 @@ async fn main() -> Result<()> {
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
+    stdout().execute(crossterm::event::EnableBracketedPaste)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let mut state = AppState::new();
@@ -129,6 +130,14 @@ async fn main() -> Result<()> {
                                             Ok((lobby, rx_lobby)) => {
                                                 state.username = username.clone();
                                                 state.input_buffer.clear();
+
+                                                // Save config on successful login
+                                                let _ = config::save(&livekit_tui_client::config::Config {
+                                                    livekit_url: state.livekit_url.clone(),
+                                                    api_key: state.api_key.clone(),
+                                                    api_secret: state.api_secret.clone(),
+                                                    last_username: username.clone(),
+                                                });
 
                                                 // Collect current participants
                                                 {
@@ -184,6 +193,18 @@ async fn main() -> Result<()> {
                             }
                         }
                         KeyCode::Esc => break,
+                        _ => {}
+                    }
+                }
+            }
+            // Also handle Paste events for login form
+            if event::poll(Duration::from_millis(0))? {
+                if let Event::Paste(text) = event::read()? {
+                    match state.active_input_index {
+                        0 => state.input_buffer.push_str(&text),
+                        1 => state.livekit_url.push_str(&text),
+                        2 => state.api_key.push_str(&text),
+                        3 => state.api_secret.push_str(&text),
                         _ => {}
                     }
                 }
@@ -298,6 +319,10 @@ async fn main() -> Result<()> {
                                     }
                                 }
                             }
+                            KeyCode::Char('s') => {
+                                state.active_input_index = 0;
+                                state.screen = AppScreen::Settings;
+                            }
                             KeyCode::Char('q') | KeyCode::Esc => break,
                             _ => {}
                         }
@@ -384,6 +409,48 @@ async fn main() -> Result<()> {
                         }
                         _ => {}
                     },
+                    AppScreen::Settings => {
+                        match key.code {
+                            KeyCode::Tab | KeyCode::Down => {
+                                state.active_input_index = (state.active_input_index + 1) % 3;
+                            }
+                            KeyCode::BackTab | KeyCode::Up => {
+                                state.active_input_index = (state.active_input_index + 2) % 3;
+                            }
+                            KeyCode::Enter => {
+                                // Save and go back
+                                let _ = config::save(&livekit_tui_client::config::Config {
+                                    livekit_url: state.livekit_url.clone(),
+                                    api_key: state.api_key.clone(),
+                                    api_secret: state.api_secret.clone(),
+                                    last_username: state.username.clone(),
+                                });
+                                state.active_input_index = 0;
+                                state.screen = AppScreen::ContactList;
+                            }
+                            KeyCode::Esc => {
+                                state.active_input_index = 0;
+                                state.screen = AppScreen::ContactList;
+                            }
+                            KeyCode::Char(c) => {
+                                match state.active_input_index {
+                                    0 => state.livekit_url.push(c),
+                                    1 => state.api_key.push(c),
+                                    2 => state.api_secret.push(c),
+                                    _ => {}
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                match state.active_input_index {
+                                    0 => { state.livekit_url.pop(); }
+                                    1 => { state.api_key.pop(); }
+                                    2 => { state.api_secret.pop(); }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                     AppScreen::Error(_) => {
                         state.screen = AppScreen::ContactList;
                     }
@@ -400,6 +467,7 @@ async fn main() -> Result<()> {
     if let Some(lobby) = state.livekit_lobby {
         let _ = lobby.close().await;
     }
+    stdout().execute(crossterm::event::DisableBracketedPaste)?;
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
     Ok(())

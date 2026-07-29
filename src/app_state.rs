@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 pub enum AppScreen {
     Login,
     ContactList,
+    Settings,
     Ringing { caller: String },
     Calling { target: String },
     InCall,
@@ -38,14 +39,14 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        dotenvy::dotenv().ok();
+        let cfg = crate::config::load();
         Self {
             screen: AppScreen::Login,
             username: String::new(),
-            input_buffer: String::new(),
-            livekit_url: std::env::var("LIVEKIT_URL").unwrap_or_else(|_| "wss://your-project.livekit.cloud".to_string()),
-            api_key: std::env::var("LIVEKIT_API_KEY").unwrap_or_default(),
-            api_secret: std::env::var("LIVEKIT_API_SECRET").unwrap_or_default(),
+            input_buffer: cfg.last_username.clone(),
+            livekit_url: cfg.livekit_url,
+            api_key: cfg.api_key,
+            api_secret: cfg.api_secret,
             active_input_index: 0,
             selected_index: 0,
             users: Vec::new(),

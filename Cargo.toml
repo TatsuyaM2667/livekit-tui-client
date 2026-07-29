@@ -2,17 +2,17 @@
 name = "livekit-tui-client"
 version = "0.1.0"
 edition = "2021"
-default-run = "client"
+default-run = "livekit-tui-client"
 autobins = false
 
 [[bin]]
-name = "client"
+name = "livekit-tui-client"
 path = "src/bin/client.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
-crossterm = "0.28"
+crossterm = { version = "0.28", features = ["bracketed-paste"] }
 ratatui = "0.29"
 livekit = { version = "0.7", features = ["native-tls"] }
 cpal = "0.15"
@@ -25,3 +25,7 @@ terminal-pixel-animation = "0.4.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 jsonwebtoken = "9.3"
+
+# Config persistence
+toml = "0.8"
+dirs = "5"
