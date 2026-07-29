@@ -100,6 +100,11 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
                 ("API Secret",  &state.api_secret,  2),
             ];
 
+            let renderer_val = match state.render_mode {
+                crate::app_state::RenderMode::Braille => "Odin (Braille)".to_string(),
+                crate::app_state::RenderMode::HalfBlock => "Zig (HalfBlock)".to_string(),
+            };
+
             let mut lines = vec![
                 Line::from(Span::styled("Connection Settings", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
                 Line::from(""),
@@ -126,6 +131,20 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
                 )));
                 lines.push(Line::from(""));
             }
+
+            // Renderer field
+            let cursor = if state.active_input_index == 3 { " < >" } else { "" };
+            let prefix = if state.active_input_index == 3 { "> " } else { "  " };
+            let style = if state.active_input_index == 3 {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            lines.push(Line::from(Span::styled(
+                format!("{}Renderer: {}{}", prefix, renderer_val, cursor),
+                style,
+            )));
+            lines.push(Line::from(""));
 
             let widget = Paragraph::new(lines)
                 .alignment(Alignment::Left)

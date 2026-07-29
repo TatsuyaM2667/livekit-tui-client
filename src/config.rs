@@ -9,6 +9,7 @@ pub struct Config {
     pub api_key: String,
     pub api_secret: String,
     pub last_username: String,
+    pub render_mode: Option<String>,
 }
 
 impl Default for Config {
@@ -21,6 +22,7 @@ impl Default for Config {
             api_key: std::env::var("LIVEKIT_API_KEY").unwrap_or_default(),
             api_secret: std::env::var("LIVEKIT_API_SECRET").unwrap_or_default(),
             last_username: String::new(),
+            render_mode: Some("braille".to_string()),
         }
     }
 }

@@ -54,7 +54,10 @@ impl AppState {
             livekit_room: None,
             is_muted: false,
             remote_video_frame: Arc::new(Mutex::new(None)),
-            render_mode: RenderMode::Braille,
+            render_mode: match cfg.render_mode.as_deref() {
+                Some("halfblock") => RenderMode::HalfBlock,
+                _ => RenderMode::Braille,
+            },
         }
     }
 }

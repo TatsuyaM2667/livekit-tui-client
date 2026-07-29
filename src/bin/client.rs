@@ -132,12 +132,18 @@ async fn main() -> Result<()> {
                                                     state.username = username.clone();
                                                     state.input_buffer.clear();
 
+                                                    let mode_str = match state.render_mode {
+                                                        livekit_tui_client::app_state::RenderMode::Braille => "braille".to_string(),
+                                                        livekit_tui_client::app_state::RenderMode::HalfBlock => "halfblock".to_string(),
+                                                    };
+
                                                     // Save config on successful login
                                                     let _ = config::save(&livekit_tui_client::config::Config {
                                                         livekit_url: state.livekit_url.clone(),
                                                         api_key: state.api_key.clone(),
                                                         api_secret: state.api_secret.clone(),
                                                         last_username: username.clone(),
+                                                        render_mode: Some(mode_str),
                                                     });
 
                                                     // Collect current participants
@@ -415,18 +421,31 @@ async fn main() -> Result<()> {
                         AppScreen::Settings => {
                             match key.code {
                                 KeyCode::Tab | KeyCode::Down => {
-                                    state.active_input_index = (state.active_input_index + 1) % 3;
+                                    state.active_input_index = (state.active_input_index + 1) % 4;
                                 }
                                 KeyCode::BackTab | KeyCode::Up => {
-                                    state.active_input_index = (state.active_input_index + 2) % 3;
+                                    state.active_input_index = (state.active_input_index + 3) % 4;
+                                }
+                                KeyCode::Left | KeyCode::Right => {
+                                    if state.active_input_index == 3 {
+                                        state.render_mode = match state.render_mode {
+                                            livekit_tui_client::app_state::RenderMode::Braille => livekit_tui_client::app_state::RenderMode::HalfBlock,
+                                            livekit_tui_client::app_state::RenderMode::HalfBlock => livekit_tui_client::app_state::RenderMode::Braille,
+                                        };
+                                    }
                                 }
                                 KeyCode::Enter => {
+                                    let mode_str = match state.render_mode {
+                                        livekit_tui_client::app_state::RenderMode::Braille => "braille".to_string(),
+                                        livekit_tui_client::app_state::RenderMode::HalfBlock => "halfblock".to_string(),
+                                    };
                                     // Save and go back
                                     let _ = config::save(&livekit_tui_client::config::Config {
                                         livekit_url: state.livekit_url.clone(),
                                         api_key: state.api_key.clone(),
                                         api_secret: state.api_secret.clone(),
                                         last_username: state.username.clone(),
+                                        render_mode: Some(mode_str),
                                     });
                                     state.active_input_index = 0;
                                     state.screen = AppScreen::ContactList;
