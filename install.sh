@@ -82,10 +82,16 @@ fi
 echo "[*] Compiling with Cargo..."
 cargo install --path .
 
+# 5. Cleanup old binary if it exists
+if [ -f "$HOME/.cargo/bin/client" ]; then
+    echo "[*] Cleaning up old 'client' binary..."
+    rm "$HOME/.cargo/bin/client"
+fi
+
 echo "=================================================="
 echo "  Installation Complete!"
 echo "=================================================="
 echo "You can now run the app from anywhere by typing:"
-echo "  client"
+echo "  livekit-tui-client"
 echo ""
 echo "Note: Make sure ~/.cargo/bin and ~/.local/bin are in your PATH."
