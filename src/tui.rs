@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
-use terminal_pixel_animation::render_half_block;
+use terminal_pixel_animation::{render_braille, render_half_block};
 
 pub fn render_ui(frame: &mut Frame, state: &AppState) {
     let size = frame.area();
@@ -37,10 +37,38 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
 
     match &state.screen {
         AppScreen::Login => {
-            let info = format!("Enter Username:\n\n> {}\u{2588}", state.input_buffer);
-            let widget = Paragraph::new(info)
-                .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL));
+            let fields = vec![
+                ("Username", &state.input_buffer, 0),
+                ("LiveKit URL", &state.livekit_url, 1),
+                ("API Key", &state.api_key, 2),
+                ("API Secret", &state.api_secret, 3),
+            ];
+
+            let mut lines = vec![Line::from("Enter Connection Details:")];
+            lines.push(Line::from(""));
+
+            for (label, val, idx) in fields {
+                let cursor = if state.active_input_index == idx { "\u{2588}" } else { "" };
+                let prefix = if state.active_input_index == idx { "> " } else { "  " };
+                let display_val = if idx == 3 && !val.is_empty() {
+                    "*".repeat(val.len())
+                } else {
+                    val.clone()
+                };
+                
+                let style = if state.active_input_index == idx {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+
+                lines.push(Line::from(Span::styled(format!("{}{}: {}{}", prefix, label, display_val, cursor), style)));
+                lines.push(Line::from(""));
+            }
+
+            let widget = Paragraph::new(lines)
+                .alignment(Alignment::Left)
+                .block(Block::default().borders(Borders::ALL).padding(ratatui::widgets::Padding::new(4, 4, 2, 2)));
             frame.render_widget(widget, main_chunks[1]);
         }
         AppScreen::ContactList => {
@@ -115,34 +143,76 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
 
             if let Some((rgb, w, h)) = latest_video {
                 if target_width > 0 && target_height > 0 {
-                    let cells = render_half_block(&rgb, w, h, target_width, target_height).unwrap_or_default();
                     let mut lines = Vec::new();
 
-                    for cy in 0..target_height {
-                        let mut spans = Vec::new();
-                        for cx in 0..target_width {
-                            let idx = ((cy * target_width + cx) * 6) as usize;
-                            if idx + 5 < cells.len() {
-                                let r_fg = cells[idx];
-                                let g_fg = cells[idx + 1];
-                                let b_fg = cells[idx + 2];
-                                let r_bg = cells[idx + 3];
-                                let g_bg = cells[idx + 4];
-                                let b_bg = cells[idx + 5];
+                    match state.render_mode {
+                        crate::app_state::RenderMode::Braille => {
+                            let cells = render_braille(&rgb, w, h, target_width, target_height).unwrap_or_default();
+                            for cy in 0..target_height {
+                                let mut spans = Vec::new();
+                                for cx in 0..target_width {
+                                    let idx = ((cy * target_width + cx) * 8) as usize;
+                                    if idx + 7 < cells.len() {
+                                        let code_point = u32::from_le_bytes([
+                                            cells[idx],
+                                            cells[idx + 1],
+                                            cells[idx + 2],
+                                            cells[idx + 3],
+                                        ]);
+                                        let ch = char::from_u32(code_point).unwrap_or(' ');
+                                        let r = cells[idx + 4];
+                                        let g = cells[idx + 5];
+                                        let b = cells[idx + 6];
 
-                                spans.push(Span::styled(
-                                    "\u{2580}",
-                                    Style::default()
-                                        .fg(Color::Rgb(r_fg, g_fg, b_fg))
-                                        .bg(Color::Rgb(r_bg, g_bg, b_bg)),
-                                ));
+                                        let s = if ch == '\0' || ch == ' ' {
+                                            " ".to_string()
+                                        } else {
+                                            ch.to_string()
+                                        };
+
+                                        spans.push(Span::styled(
+                                            s,
+                                            Style::default().fg(Color::Rgb(r, g, b)),
+                                        ));
+                                    }
+                                }
+                                lines.push(Line::from(spans));
                             }
                         }
-                        lines.push(Line::from(spans));
+                        crate::app_state::RenderMode::HalfBlock => {
+                            let cells = render_half_block(&rgb, w, h, target_width, target_height).unwrap_or_default();
+                            for cy in 0..target_height {
+                                let mut spans = Vec::new();
+                                for cx in 0..target_width {
+                                    let idx = ((cy * target_width + cx) * 6) as usize;
+                                    if idx + 5 < cells.len() {
+                                        let r_fg = cells[idx];
+                                        let g_fg = cells[idx + 1];
+                                        let b_fg = cells[idx + 2];
+                                        let r_bg = cells[idx + 3];
+                                        let g_bg = cells[idx + 4];
+                                        let b_bg = cells[idx + 5];
+
+                                        spans.push(Span::styled(
+                                            "\u{2580}",
+                                            Style::default()
+                                                .fg(Color::Rgb(r_fg, g_fg, b_fg))
+                                                .bg(Color::Rgb(r_bg, g_bg, b_bg)),
+                                        ));
+                                    }
+                                }
+                                lines.push(Line::from(spans));
+                            }
+                        }
                     }
 
+                    let mode_str = match state.render_mode {
+                        crate::app_state::RenderMode::Braille => "Odin (Braille)",
+                        crate::app_state::RenderMode::HalfBlock => "Zig (HalfBlock)",
+                    };
+
                     let video_widget = Paragraph::new(lines)
-                        .block(Block::default().title(" Video Stream ").borders(Borders::ALL));
+                        .block(Block::default().title(format!(" Video Stream [{}] ", mode_str)).borders(Borders::ALL));
                     frame.render_widget(video_widget, body_chunks[1]);
                 }
             } else {
@@ -163,11 +233,11 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
     }
 
     let footer_text = match state.screen {
-        AppScreen::Login => " [Enter] Submit | [q] Quit ",
+        AppScreen::Login => " [Tab] Next Field | [Enter] Connect | [q] Quit ",
         AppScreen::ContactList => " [Up/Down] Navigate | [Enter] Call | [q] Quit ",
         AppScreen::Ringing { .. } => " [y] Accept | [n] Reject | [q] Quit ",
         AppScreen::Calling { .. } => " [q] Quit ",
-        AppScreen::InCall => " [m] Toggle Mute | [q] End Call ",
+        AppScreen::InCall => " [m] Toggle Mic | [r] Toggle Renderer | [q] End Call ",
         AppScreen::Error(_) => " [Any Key] Dismiss ",
     };
     

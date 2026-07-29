@@ -64,7 +64,7 @@ pub async fn setup_microphone(room: &Room) -> Option<LocalTrackPublication> {
 
             if let Ok(stream) = input_stream {
                 let _ = stream.play();
-                std::mem::forget(stream); // Keep stream alive
+                std::mem::forget(stream);
             }
         }
     }
