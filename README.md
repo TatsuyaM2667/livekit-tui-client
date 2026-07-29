@@ -24,7 +24,7 @@ RustとRatatuiを使って構築された、ターミナル上で動作するSNS
 - シグナリングサーバーは不要。**LiveKit Cloud** に直接接続
 - 全クライアントが永続的に **lobby** ルームに参加し、在籍管理とシグナリング（発信・着信通知）を **LiveKit Data Channel** 上で行う
 - 通話開始時に **call\_{caller}\_{callee}** ルームが動的生成され、音声・映像が流れる
-- JWTトークンはクライアント側で生成（API Key/Secret はクライアントの `.env` に保持）
+- JWTトークンはクライアント側で生成（設定した API Key/Secret から生成）
 
 ## セットアップ手順
 
@@ -33,7 +33,9 @@ RustとRatatuiを使って構築された、ターミナル上で動作するSNS
 通話したい各デバイスで以下を実行します。
 
 ```bash
-cargo run --bin client
+cargo run
+# または
+livekit-tui-client
 ```
 
 起動後、ログイン画面にて以下の情報を入力します（`[Tab]` キーで項目を移動します）：
@@ -42,7 +44,9 @@ cargo run --bin client
 - **API Key**: LiveKit APIキー
 - **API Secret**: LiveKit シークレット
 
-> プロジェクト直下に `.env` ファイルを用意して事前に値を設定しておくと、起動時に自動でUIに入力されます。
+> **設定の保存について**
+> 入力した情報はログイン成功時に `~/.config/livekit-tui-client/config.toml` へ自動で保存されます。次回起動時に入力を省略できます。
+> また、ログイン後は `[s]` キーで **Settings** 画面を開き、APIキーなどを再編集することも可能です。ターミナルのコピー＆ペースト（Ctrl+Vなど）にも対応しています。
 
 ---
 
@@ -51,7 +55,8 @@ cargo run --bin client
 | 画面 | 操作キー |
 |------|---------|
 | **ログイン画面** | `[Tab]`で項目移動、名前等を入力して `[Enter]` で接続 |
-| **ユーザー一覧** | `[↑↓]` で選択、`[Enter]` で発信、`[q]` で終了 |
+| **ユーザー一覧** | `[↑↓]` で選択、`[Enter]` で発信、`[s]` で設定変更、`[q]` で終了 |
+| **設定画面 (Settings)** | `[Tab]` で項目移動、`[Enter]` で保存して戻る |
 | **着信画面** | `[y]` で受話、`[n]` で拒否 |
 | **通話中** | `[m]` でマイクOn/Off、`[r]` で描画モード切替(Odin/Zig)、`[q]` で終了 |
 
@@ -72,19 +77,20 @@ cargo run --bin client
 ```bash
 curl -sSfL https://raw.githubusercontent.com/TatsuyaM2667/livekit-tui-client/master/install.sh | bash
 ```
-> ※ スクリプト内でパッケージマネージャ(`apt`, `dnf`, `pacman`, `zypper`)を自動検知して処理します。インストール後は `client` コマンドでどこからでも起動できます。
+> ※ スクリプト内でパッケージマネージャ(`apt`, `dnf`, `pacman`, `zypper`)を自動検知して処理します。インストール後は `livekit-tui-client` コマンドでどこからでも起動できます。
 
 ---
 
 ### パッケージマネージャを使う場合 (AUR / RPM)
-手動でパッケージとしてシステムにインストールしたい場合は、同梱のファイルを使用します。
+手動でパッケージとしてシステムにインストールしたい場合は以下の手順をご利用ください。
 
 #### Arch Linux系 (yay, paru)
-Arch LinuxやManjaroなどの環境では、AURヘルパーを使ってインストールできます。
-同梱の `PKGBUILD` を使用して以下のようにビルド・インストール可能です（AUR公開時は `yay -S livekit-tui-client` 等で導入可能になります）。
+Arch LinuxやManjaroなどの環境では、AURに登録されている `livekit-tui-client-git` をインストールできます。
 
 ```bash
-makepkg -si
+paru -S livekit-tui-client-git
+# または
+yay -S livekit-tui-client-git
 ```
 
 ### Fedora, openSUSE, RHEL系 (RPM)
@@ -96,8 +102,8 @@ rpmbuild -ba livekit-tui-client.spec
 
 ## 別デバイスとの通話方法
 
-1. 各デバイスの `.env` に同じ LiveKit Cloud の認証情報を設定。
-2. 各デバイスで `cargo run --bin client` を実行し、別々のユーザー名でログイン。
+1. 各デバイスを起動し、同じ LiveKit Cloud の認証情報を設定する。
+2. 別々のユーザー名（Username）でログインする。
 3. ユーザー一覧から相手を選択して `[Enter]` を押すと着信通知が飛び、相手が `[y]` を押すと通話が始まる。
 
 ## トラブルシューティング
