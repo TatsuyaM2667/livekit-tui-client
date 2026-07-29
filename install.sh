@@ -20,14 +20,14 @@ echo "[*] Detected OS: $OS"
 # 1. Install System Dependencies
 echo "[*] Installing system dependencies..."
 if [[ "$OS" == "arch" || "$OS_LIKE" == *"arch"* ]]; then
-    sudo pacman -Sy --needed --noconfirm base-devel alsa-lib git curl wget unzip zig odin
+    sudo pacman -Sy --needed --noconfirm base-devel alsa-lib git curl wget unzip zig odin pkgconf glib2
 elif [[ "$OS" == "ubuntu" || "$OS" == "debian" || "$OS_LIKE" == *"debian"* ]]; then
     sudo apt-get update
-    sudo apt-get install -y build-essential libasound2-dev git curl wget unzip
+    sudo apt-get install -y build-essential libasound2-dev git curl wget unzip pkg-config libglib2.0-dev
 elif [[ "$OS" == "fedora" || "$OS" == "almalinux" || "$OS" == "rocky" || "$OS_LIKE" == *"rhel"* ]]; then
-    sudo dnf install -y alsa-lib-devel gcc git curl wget unzip
+    sudo dnf install -y alsa-lib-devel gcc git curl wget unzip pkgconf-pkg-config glib2-devel
 elif [[ "$OS" == "opensuse"* || "$OS_LIKE" == *"suse"* ]]; then
-    sudo zypper install -y alsa-devel gcc git curl wget unzip
+    sudo zypper install -y alsa-devel gcc git curl wget unzip pkg-config glib2-devel
 else
     echo "[!] Unsupported package manager. Please install alsa-lib-devel manually."
 fi
