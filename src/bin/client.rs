@@ -113,100 +113,102 @@ async fn main() -> Result<()> {
         // ── Login screen: enter username and join lobby ───────────────────────
         if state.screen == AppScreen::Login {
             if event::poll(Duration::from_millis(50))? {
-                if let Event::Key(key) = event::read()? {
-                    match key.code {
-                        KeyCode::Tab | KeyCode::Down => {
-                            state.active_input_index = (state.active_input_index + 1) % 4;
-                        }
-                        KeyCode::BackTab | KeyCode::Up => {
-                            state.active_input_index = (state.active_input_index + 3) % 4;
-                        }
-                        KeyCode::Enter => {
-                            let username = state.input_buffer.trim().to_string();
-                            if !username.is_empty() {
-                                match create_token(&state.api_key, &state.api_secret, &username, "lobby") {
-                                    Ok(token) => {
-                                        match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
-                                            Ok((lobby, rx_lobby)) => {
-                                                state.username = username.clone();
-                                                state.input_buffer.clear();
+                match event::read()? {
+                    Event::Key(key) => {
+                        match key.code {
+                            KeyCode::Tab | KeyCode::Down => {
+                                state.active_input_index = (state.active_input_index + 1) % 4;
+                            }
+                            KeyCode::BackTab | KeyCode::Up => {
+                                state.active_input_index = (state.active_input_index + 3) % 4;
+                            }
+                            KeyCode::Enter => {
+                                let username = state.input_buffer.trim().to_string();
+                                if !username.is_empty() {
+                                    match create_token(&state.api_key, &state.api_secret, &username, "lobby") {
+                                        Ok(token) => {
+                                            match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
+                                                Ok((lobby, rx_lobby)) => {
+                                                    state.username = username.clone();
+                                                    state.input_buffer.clear();
 
-                                                // Save config on successful login
-                                                let _ = config::save(&livekit_tui_client::config::Config {
-                                                    livekit_url: state.livekit_url.clone(),
-                                                    api_key: state.api_key.clone(),
-                                                    api_secret: state.api_secret.clone(),
-                                                    last_username: username.clone(),
-                                                });
+                                                    // Save config on successful login
+                                                    let _ = config::save(&livekit_tui_client::config::Config {
+                                                        livekit_url: state.livekit_url.clone(),
+                                                        api_key: state.api_key.clone(),
+                                                        api_secret: state.api_secret.clone(),
+                                                        last_username: username.clone(),
+                                                    });
 
-                                                // Collect current participants
-                                                {
-                                                    let mut list = participant_list.lock().unwrap();
-                                                    *list = lobby
-                                                        .remote_participants()
-                                                        .keys()
-                                                        .map(|id| id.as_str().to_string())
-                                                        .collect();
+                                                    // Collect current participants
+                                                    {
+                                                        let mut list = participant_list.lock().unwrap();
+                                                        *list = lobby
+                                                            .remote_participants()
+                                                            .keys()
+                                                            .map(|id| id.as_str().to_string())
+                                                            .collect();
+                                                    }
+                                                    state.users = participant_list.lock().unwrap().clone();
+
+                                                    state.livekit_lobby = Some(lobby);
+                                                    state.screen = AppScreen::ContactList;
+
+                                                    // Spawn lobby event handler
+                                                    let tx_sig_clone = tx_sig.clone();
+                                                    let pl_clone = participant_list.clone();
+                                                    let my_name = username.clone();
+                                                    tokio::spawn(async move {
+                                                        handle_lobby_events(rx_lobby, tx_sig_clone, pl_clone, my_name).await;
+                                                    });
                                                 }
-                                                state.users = participant_list.lock().unwrap().clone();
-
-                                                state.livekit_lobby = Some(lobby);
-                                                state.screen = AppScreen::ContactList;
-
-                                                // Spawn lobby event handler
-                                                let tx_sig_clone = tx_sig.clone();
-                                                let pl_clone = participant_list.clone();
-                                                let my_name = username.clone();
-                                                tokio::spawn(async move {
-                                                    handle_lobby_events(rx_lobby, tx_sig_clone, pl_clone, my_name).await;
-                                                });
-                                            }
-                                            Err(e) => {
-                                                state.screen = AppScreen::Error(
-                                                    format!("Failed to connect to LiveKit: {}", e),
-                                                );
+                                                Err(e) => {
+                                                    state.screen = AppScreen::Error(
+                                                        format!("Failed to connect to LiveKit: {}", e),
+                                                    );
+                                                }
                                             }
                                         }
-                                    }
-                                    Err(e) => {
-                                        state.screen = AppScreen::Error(format!("Token error: {}", e));
+                                        Err(e) => {
+                                            state.screen = AppScreen::Error(format!("Token error: {}", e));
+                                        }
                                     }
                                 }
                             }
-                        }
-                        KeyCode::Char(c) => {
-                            match state.active_input_index {
-                                0 => state.input_buffer.push(c),
-                                1 => state.livekit_url.push(c),
-                                2 => state.api_key.push(c),
-                                3 => state.api_secret.push(c),
-                                _ => {}
+                            KeyCode::Char(c) => {
+                                match state.active_input_index {
+                                    0 => state.input_buffer.push(c),
+                                    1 => state.livekit_url.push(c),
+                                    2 => state.api_key.push(c),
+                                    3 => state.api_secret.push(c),
+                                    _ => {}
+                                }
                             }
-                        }
-                        KeyCode::Backspace => {
-                            match state.active_input_index {
-                                0 => { state.input_buffer.pop(); }
-                                1 => { state.livekit_url.pop(); }
-                                2 => { state.api_key.pop(); }
-                                3 => { state.api_secret.pop(); }
-                                _ => {}
+                            KeyCode::Backspace => {
+                                match state.active_input_index {
+                                    0 => { state.input_buffer.pop(); }
+                                    1 => { state.livekit_url.pop(); }
+                                    2 => { state.api_key.pop(); }
+                                    3 => { state.api_secret.pop(); }
+                                    _ => {}
+                                }
                             }
+                            KeyCode::Esc => break,
+                            _ => {}
                         }
-                        KeyCode::Esc => break,
-                        _ => {}
                     }
-                }
-            }
-            // Also handle Paste events for login form
-            if event::poll(Duration::from_millis(0))? {
-                if let Event::Paste(text) = event::read()? {
-                    match state.active_input_index {
-                        0 => state.input_buffer.push_str(&text),
-                        1 => state.livekit_url.push_str(&text),
-                        2 => state.api_key.push_str(&text),
-                        3 => state.api_secret.push_str(&text),
-                        _ => {}
+                    Event::Paste(text) => {
+                        // strip newlines to prevent weird cursor breaks in text inputs
+                        let safe_text = text.replace('\n', "").replace('\r', "");
+                        match state.active_input_index {
+                            0 => state.input_buffer.push_str(&safe_text),
+                            1 => state.livekit_url.push_str(&safe_text),
+                            2 => state.api_key.push_str(&safe_text),
+                            3 => state.api_secret.push_str(&safe_text),
+                            _ => {}
+                        }
                     }
+                    _ => {}
                 }
             }
             continue;
@@ -284,178 +286,192 @@ async fn main() -> Result<()> {
 
         // ── Handle keyboard input ─────────────────────────────────────────────
         if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                match &state.screen {
-                    AppScreen::ContactList => {
-                        let filtered: Vec<String> = state
-                            .users
-                            .iter()
-                            .filter(|u| *u != &state.username)
-                            .cloned()
-                            .collect();
-                        match key.code {
-                            KeyCode::Up => {
-                                if state.selected_index > 0 {
-                                    state.selected_index -= 1;
-                                }
-                            }
-                            KeyCode::Down => {
-                                if !filtered.is_empty()
-                                    && state.selected_index < filtered.len() - 1
-                                {
-                                    state.selected_index += 1;
-                                }
-                            }
-                            KeyCode::Enter => {
-                                if !filtered.is_empty() {
-                                    let target = filtered[state.selected_index].clone();
-                                    state.screen = AppScreen::Calling { target: target.clone() };
-                                    if let Some(lobby) = &state.livekit_lobby {
-                                        let req = SignalingMessage::CallRequest {
-                                            from: state.username.clone(),
-                                            to: target,
-                                        };
-                                        let _ = send_signaling(lobby, &req).await;
+            match event::read()? {
+                Event::Key(key) => {
+                    match &state.screen {
+                        AppScreen::ContactList => {
+                            let filtered: Vec<String> = state
+                                .users
+                                .iter()
+                                .filter(|u| *u != &state.username)
+                                .cloned()
+                                .collect();
+                            match key.code {
+                                KeyCode::Up => {
+                                    if state.selected_index > 0 {
+                                        state.selected_index -= 1;
                                     }
                                 }
-                            }
-                            KeyCode::Char('s') => {
-                                state.active_input_index = 0;
-                                state.screen = AppScreen::Settings;
-                            }
-                            KeyCode::Char('q') | KeyCode::Esc => break,
-                            _ => {}
-                        }
-                    }
-                    AppScreen::Ringing { caller } => {
-                        let caller = caller.clone();
-                        match key.code {
-                            KeyCode::Char('y') => {
-                                // Accept: create call room, send CallAccepted, join room
-                                let room_name = format!("call_{}_{}", caller, state.username);
-                                let my_name = state.username.clone();
-                                match create_token(&state.api_key, &state.api_secret, &my_name, &room_name) {
-                                    Ok(token) => {
-                                        match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
-                                            Ok((call_room, rx_call)) => {
-                                                // Notify caller
-                                                if let Some(lobby) = &state.livekit_lobby {
-                                                    let accepted = SignalingMessage::CallAccepted {
-                                                        from: my_name.clone(),
-                                                        to: caller.clone(),
-                                                        room: room_name.clone(),
-                                                    };
-                                                    let _ = send_signaling(lobby, &accepted).await;
-                                                }
-                                                state.screen = AppScreen::InCall;
-                                                audio_pub = audio::setup_microphone(&call_room).await;
-                                                video::setup_camera(&call_room).await;
-                                                events::handle_room_events(rx_call, state.remote_video_frame.clone());
-                                                state.livekit_room = Some(call_room);
-                                            }
-                                            Err(e) => {
-                                                state.screen = AppScreen::Error(format!(
-                                                    "Failed to join call room: {}", e
-                                                ));
-                                            }
+                                KeyCode::Down => {
+                                    if !filtered.is_empty()
+                                        && state.selected_index < filtered.len() - 1
+                                    {
+                                        state.selected_index += 1;
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    if !filtered.is_empty() {
+                                        let target = filtered[state.selected_index].clone();
+                                        state.screen = AppScreen::Calling { target: target.clone() };
+                                        if let Some(lobby) = &state.livekit_lobby {
+                                            let req = SignalingMessage::CallRequest {
+                                                from: state.username.clone(),
+                                                to: target,
+                                            };
+                                            let _ = send_signaling(lobby, &req).await;
                                         }
                                     }
-                                    Err(e) => {
-                                        state.screen = AppScreen::Error(format!("Token error: {}", e));
+                                }
+                                KeyCode::Char('s') => {
+                                    state.active_input_index = 0;
+                                    state.screen = AppScreen::Settings;
+                                }
+                                KeyCode::Char('q') | KeyCode::Esc => break,
+                                _ => {}
+                            }
+                        }
+                        AppScreen::Ringing { caller } => {
+                            let caller = caller.clone();
+                            match key.code {
+                                KeyCode::Char('y') => {
+                                    // Accept: create call room, send CallAccepted, join room
+                                    let room_name = format!("call_{}_{}", caller, state.username);
+                                    let my_name = state.username.clone();
+                                    match create_token(&state.api_key, &state.api_secret, &my_name, &room_name) {
+                                        Ok(token) => {
+                                            match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
+                                                Ok((call_room, rx_call)) => {
+                                                    // Notify caller
+                                                    if let Some(lobby) = &state.livekit_lobby {
+                                                        let accepted = SignalingMessage::CallAccepted {
+                                                            from: my_name.clone(),
+                                                            to: caller.clone(),
+                                                            room: room_name.clone(),
+                                                        };
+                                                        let _ = send_signaling(lobby, &accepted).await;
+                                                    }
+                                                    state.screen = AppScreen::InCall;
+                                                    audio_pub = audio::setup_microphone(&call_room).await;
+                                                    video::setup_camera(&call_room).await;
+                                                    events::handle_room_events(rx_call, state.remote_video_frame.clone());
+                                                    state.livekit_room = Some(call_room);
+                                                }
+                                                Err(e) => {
+                                                    state.screen = AppScreen::Error(format!(
+                                                        "Failed to join call room: {}", e
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            state.screen = AppScreen::Error(format!("Token error: {}", e));
+                                        }
+                                    }
+                                }
+                                KeyCode::Char('n') => {
+                                    if let Some(lobby) = &state.livekit_lobby {
+                                        let reject = SignalingMessage::CallRejected {
+                                            from: state.username.clone(),
+                                            to: caller.clone(),
+                                        };
+                                        let _ = send_signaling(lobby, &reject).await;
+                                    }
+                                    state.screen = AppScreen::ContactList;
+                                }
+                                KeyCode::Char('q') | KeyCode::Esc => break,
+                                _ => {}
+                            }
+                        }
+                        AppScreen::Calling { .. } => {
+                            if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
+                                state.screen = AppScreen::ContactList;
+                            }
+                        }
+                        AppScreen::InCall => match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => {
+                                if let Some(r) = state.livekit_room.take() {
+                                    let _ = r.close().await;
+                                }
+                                state.screen = AppScreen::ContactList;
+                            }
+                            KeyCode::Char('m') => {
+                                state.is_muted = !state.is_muted;
+                                if let Some(ref pub_track) = audio_pub {
+                                    if state.is_muted {
+                                        pub_track.mute();
+                                    } else {
+                                        pub_track.unmute();
                                     }
                                 }
                             }
-                            KeyCode::Char('n') => {
-                                if let Some(lobby) = &state.livekit_lobby {
-                                    let reject = SignalingMessage::CallRejected {
-                                        from: state.username.clone(),
-                                        to: caller.clone(),
-                                    };
-                                    let _ = send_signaling(lobby, &reject).await;
-                                }
-                                state.screen = AppScreen::ContactList;
-                            }
-                            KeyCode::Char('q') | KeyCode::Esc => break,
-                            _ => {}
-                        }
-                    }
-                    AppScreen::Calling { .. } => {
-                        if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
-                            state.screen = AppScreen::ContactList;
-                        }
-                    }
-                    AppScreen::InCall => match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            if let Some(r) = state.livekit_room.take() {
-                                let _ = r.close().await;
-                            }
-                            state.screen = AppScreen::ContactList;
-                        }
-                        KeyCode::Char('m') => {
-                            state.is_muted = !state.is_muted;
-                            if let Some(ref pub_track) = audio_pub {
-                                if state.is_muted {
-                                    pub_track.mute();
-                                } else {
-                                    pub_track.unmute();
-                                }
-                            }
-                        }
-                        KeyCode::Char('r') => {
-                            state.render_mode = match state.render_mode {
-                                livekit_tui_client::app_state::RenderMode::Braille => livekit_tui_client::app_state::RenderMode::HalfBlock,
-                                livekit_tui_client::app_state::RenderMode::HalfBlock => livekit_tui_client::app_state::RenderMode::Braille,
-                            };
-                        }
-                        _ => {}
-                    },
-                    AppScreen::Settings => {
-                        match key.code {
-                            KeyCode::Tab | KeyCode::Down => {
-                                state.active_input_index = (state.active_input_index + 1) % 3;
-                            }
-                            KeyCode::BackTab | KeyCode::Up => {
-                                state.active_input_index = (state.active_input_index + 2) % 3;
-                            }
-                            KeyCode::Enter => {
-                                // Save and go back
-                                let _ = config::save(&livekit_tui_client::config::Config {
-                                    livekit_url: state.livekit_url.clone(),
-                                    api_key: state.api_key.clone(),
-                                    api_secret: state.api_secret.clone(),
-                                    last_username: state.username.clone(),
-                                });
-                                state.active_input_index = 0;
-                                state.screen = AppScreen::ContactList;
-                            }
-                            KeyCode::Esc => {
-                                state.active_input_index = 0;
-                                state.screen = AppScreen::ContactList;
-                            }
-                            KeyCode::Char(c) => {
-                                match state.active_input_index {
-                                    0 => state.livekit_url.push(c),
-                                    1 => state.api_key.push(c),
-                                    2 => state.api_secret.push(c),
-                                    _ => {}
-                                }
-                            }
-                            KeyCode::Backspace => {
-                                match state.active_input_index {
-                                    0 => { state.livekit_url.pop(); }
-                                    1 => { state.api_key.pop(); }
-                                    2 => { state.api_secret.pop(); }
-                                    _ => {}
-                                }
+                            KeyCode::Char('r') => {
+                                state.render_mode = match state.render_mode {
+                                    livekit_tui_client::app_state::RenderMode::Braille => livekit_tui_client::app_state::RenderMode::HalfBlock,
+                                    livekit_tui_client::app_state::RenderMode::HalfBlock => livekit_tui_client::app_state::RenderMode::Braille,
+                                };
                             }
                             _ => {}
+                        },
+                        AppScreen::Settings => {
+                            match key.code {
+                                KeyCode::Tab | KeyCode::Down => {
+                                    state.active_input_index = (state.active_input_index + 1) % 3;
+                                }
+                                KeyCode::BackTab | KeyCode::Up => {
+                                    state.active_input_index = (state.active_input_index + 2) % 3;
+                                }
+                                KeyCode::Enter => {
+                                    // Save and go back
+                                    let _ = config::save(&livekit_tui_client::config::Config {
+                                        livekit_url: state.livekit_url.clone(),
+                                        api_key: state.api_key.clone(),
+                                        api_secret: state.api_secret.clone(),
+                                        last_username: state.username.clone(),
+                                    });
+                                    state.active_input_index = 0;
+                                    state.screen = AppScreen::ContactList;
+                                }
+                                KeyCode::Esc => {
+                                    state.active_input_index = 0;
+                                    state.screen = AppScreen::ContactList;
+                                }
+                                KeyCode::Char(c) => {
+                                    match state.active_input_index {
+                                        0 => state.livekit_url.push(c),
+                                        1 => state.api_key.push(c),
+                                        2 => state.api_secret.push(c),
+                                        _ => {}
+                                    }
+                                }
+                                KeyCode::Backspace => {
+                                    match state.active_input_index {
+                                        0 => { state.livekit_url.pop(); }
+                                        1 => { state.api_key.pop(); }
+                                        2 => { state.api_secret.pop(); }
+                                        _ => {}
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
+                        AppScreen::Error(_) => {
+                            state.screen = AppScreen::ContactList;
+                        }
+                        AppScreen::Login => unreachable!(),
                     }
-                    AppScreen::Error(_) => {
-                        state.screen = AppScreen::ContactList;
-                    }
-                    AppScreen::Login => unreachable!(),
                 }
+                Event::Paste(text) => {
+                    if let AppScreen::Settings = state.screen {
+                        let safe_text = text.replace('\n', "").replace('\r', "");
+                        match state.active_input_index {
+                            0 => state.livekit_url.push_str(&safe_text),
+                            1 => state.api_key.push_str(&safe_text),
+                            2 => state.api_secret.push_str(&safe_text),
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
