@@ -70,7 +70,7 @@ cargo run --bin client
 依存関係（Rust, Zig, Odin, ALSA等のシステムライブラリ）のインストールからビルドまでを全て自動で行うスクリプトです。ターミナルに以下の1行を貼り付けて実行するだけで構築が完了します。
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/yourusername/livekit-tui-client/master/install.sh | bash
+curl -sSfL https://raw.githubusercontent.com/TatsuyaM2667/livekit-tui-client/master/install.sh | bash
 ```
 > ※ スクリプト内でパッケージマネージャ(`apt`, `dnf`, `pacman`, `zypper`)を自動検知して処理します。インストール後は `client` コマンドでどこからでも起動できます。
 
