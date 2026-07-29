@@ -62,12 +62,24 @@ cargo run --bin client
 
 ---
 
-## Linux向けインストール (AUR / RPM)
+## Linux向けインストール
 
-本プロジェクトは、各種Linuxディストリビューション向けのパッケージング設定を含んでいます。
-依存する `zig` と `odin` コンパイラもパッケージマネージャ経由で自動解決されるように構成されています。
+様々なLinuxディストリビューション（Arch, Ubuntu, Debian, Fedora, openSUSE, AlmaLinux 等）に対応した導入方法を用意しています。
 
-### Arch Linux系 (yay, paru)
+### 【推奨】1クリック自動インストール (全Distro対応)
+依存関係（Rust, Zig, Odin, ALSA等のシステムライブラリ）のインストールからビルドまでを全て自動で行うスクリプトです。ターミナルに以下の1行を貼り付けて実行するだけで構築が完了します。
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/yourusername/livekit-tui-client/master/install.sh | bash
+```
+> ※ スクリプト内でパッケージマネージャ(`apt`, `dnf`, `pacman`, `zypper`)を自動検知して処理します。インストール後は `client` コマンドでどこからでも起動できます。
+
+---
+
+### パッケージマネージャを使う場合 (AUR / RPM)
+手動でパッケージとしてシステムにインストールしたい場合は、同梱のファイルを使用します。
+
+#### Arch Linux系 (yay, paru)
 Arch LinuxやManjaroなどの環境では、AURヘルパーを使ってインストールできます。
 同梱の `PKGBUILD` を使用して以下のようにビルド・インストール可能です（AUR公開時は `yay -S livekit-tui-client` 等で導入可能になります）。
 
