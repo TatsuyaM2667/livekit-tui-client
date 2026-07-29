@@ -3,6 +3,11 @@ name = "livekit-tui-client"
 version = "0.1.0"
 edition = "2021"
 default-run = "client"
+autobins = false
+
+[[bin]]
+name = "client"
+path = "src/bin/client.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -16,9 +21,7 @@ futures-util = "0.3"
 dotenvy = "0.15"
 terminal-pixel-animation = { path = "../Documents/terminal-pixel-animation" }
 
-# Server & Serialization Dependencies
-axum = { version = "0.7", features = ["ws"] }
-tokio-tungstenite = "0.24"
+# Token generation & Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 jsonwebtoken = "9.3"
