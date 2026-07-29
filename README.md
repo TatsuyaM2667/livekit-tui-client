@@ -28,39 +28,59 @@ RustとRatatuiを使って構築された、ターミナル上で動作するSNS
 
 ## セットアップ手順
 
-### 1. `.env` ファイルの設定
+### 1. アプリの起動と設定
 
-プロジェクトルートの `.env` を以下のように設定。
-
-```env
-# LiveKit Cloud の URL (wss://プロトコル)
-LIVEKIT_URL=wss://your-project.livekit.cloud
-
-# LiveKit Cloud の API Key と Secret
-LIVEKIT_API_KEY=your_api_key
-LIVEKIT_API_SECRET=your_api_secret
-```
-
-### 2. クライアントの起動
-
-起動する各端末で以下を実行。
+通話したい各デバイスで以下を実行します。
 
 ```bash
 cargo run --bin client
 ```
 
-起動後、ユーザー名を入力してログインするとオンラインユーザー一覧が表示。
+起動後、ログイン画面にて以下の情報を入力します（`[Tab]` キーで項目を移動します）：
+- **Username**: あなたの名前
+- **LiveKit URL**: (例: `wss://your-livekit-server.example.com`)
+- **API Key**: LiveKit APIキー
+- **API Secret**: LiveKit シークレット
 
-シグナリングサーバーは不要。各クライアントが LiveKit Cloud に直接接続
+> プロジェクト直下に `.env` ファイルを用意して事前に値を設定しておくと、起動時に自動でUIに入力されます。
+
+---
 
 ## 使い方
 
-| 画面             | 操作キー                                      |
-| ---------------- | --------------------------------------------- |
-| **ログイン画面** | 名前を入力して `[Enter]`                      |
+| 画面 | 操作キー |
+|------|---------|
+| **ログイン画面** | `[Tab]`で項目移動、名前等を入力して `[Enter]` で接続 |
 | **ユーザー一覧** | `[↑↓]` で選択、`[Enter]` で発信、`[q]` で終了 |
-| **着信画面**     | `[y]` で受話、`[n]` で拒否                    |
-| **通話中**       | `[m]` でマイクOn/Off、`[q]` で通話終了        |
+| **着信画面** | `[y]` で受話、`[n]` で拒否 |
+| **通話中** | `[m]` でマイクOn/Off、`[r]` で描画モード切替(Odin/Zig)、`[q]` で終了 |
+
+> **動画描画モードについて**
+> 通話中、`[r]` キーを押すことで動的に描画エンジンを切り替えられます。
+> - **Odin (Braille)**: 高解像度なピクセルアニメーション描画
+> - **Zig (HalfBlock)**: 従来のモザイク風ブロック描画
+
+---
+
+## Linux向けインストール (AUR / RPM)
+
+本プロジェクトは、各種Linuxディストリビューション向けのパッケージング設定を含んでいます。
+依存する `zig` と `odin` コンパイラもパッケージマネージャ経由で自動解決されるように構成されています。
+
+### Arch Linux系 (yay, paru)
+Arch LinuxやManjaroなどの環境では、AURヘルパーを使ってインストールできます。
+同梱の `PKGBUILD` を使用して以下のようにビルド・インストール可能です（AUR公開時は `yay -S livekit-tui-client` 等で導入可能になります）。
+
+```bash
+makepkg -si
+```
+
+### Fedora, openSUSE, RHEL系 (RPM)
+RPM系の環境では、同梱的 `livekit-tui-client.spec` を使用してRPMパッケージを作成し、インストールすることができます。
+
+```bash
+rpmbuild -ba livekit-tui-client.spec
+```
 
 ## 別デバイスとの通話方法
 

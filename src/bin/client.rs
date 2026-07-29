@@ -14,7 +14,6 @@ use livekit_tui_client::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::io::stdout;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -92,11 +91,6 @@ async fn send_signaling(room: &Room, msg: &SignalingMessage) -> Result<()> {
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
-    let lk_url = env::var("LIVEKIT_URL")
-        .unwrap_or_else(|_| "wss://your-project.livekit.cloud".to_string());
-    let api_key = env::var("LIVEKIT_API_KEY").unwrap_or_default();
-    let api_secret = env::var("LIVEKIT_API_SECRET").unwrap_or_default();
-
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -120,12 +114,18 @@ async fn main() -> Result<()> {
             if event::poll(Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
                     match key.code {
+                        KeyCode::Tab | KeyCode::Down => {
+                            state.active_input_index = (state.active_input_index + 1) % 4;
+                        }
+                        KeyCode::BackTab | KeyCode::Up => {
+                            state.active_input_index = (state.active_input_index + 3) % 4;
+                        }
                         KeyCode::Enter => {
                             let username = state.input_buffer.trim().to_string();
                             if !username.is_empty() {
-                                match create_token(&api_key, &api_secret, &username, "lobby") {
+                                match create_token(&state.api_key, &state.api_secret, &username, "lobby") {
                                     Ok(token) => {
-                                        match Room::connect(&lk_url, &token, RoomOptions::default()).await {
+                                        match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
                                             Ok((lobby, rx_lobby)) => {
                                                 state.username = username.clone();
                                                 state.input_buffer.clear();
@@ -165,8 +165,24 @@ async fn main() -> Result<()> {
                                 }
                             }
                         }
-                        KeyCode::Char(c) => state.input_buffer.push(c),
-                        KeyCode::Backspace => { state.input_buffer.pop(); }
+                        KeyCode::Char(c) => {
+                            match state.active_input_index {
+                                0 => state.input_buffer.push(c),
+                                1 => state.livekit_url.push(c),
+                                2 => state.api_key.push(c),
+                                3 => state.api_secret.push(c),
+                                _ => {}
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            match state.active_input_index {
+                                0 => { state.input_buffer.pop(); }
+                                1 => { state.livekit_url.pop(); }
+                                2 => { state.api_key.pop(); }
+                                3 => { state.api_secret.pop(); }
+                                _ => {}
+                            }
+                        }
                         KeyCode::Esc => break,
                         _ => {}
                     }
@@ -196,9 +212,9 @@ async fn main() -> Result<()> {
                     // We are the caller — join the call room
                     let room_name = room.clone();
                     let callee = from.clone();
-                    match create_token(&api_key, &api_secret, &state.username, &room_name) {
+                    match create_token(&state.api_key, &state.api_secret, &state.username, &room_name) {
                         Ok(token) => {
-                            match Room::connect(&lk_url, &token, RoomOptions::default()).await {
+                            match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
                                 Ok((call_room, rx_call)) => {
                                     state.screen = AppScreen::InCall;
                                     audio_pub = audio::setup_microphone(&call_room).await;
@@ -293,9 +309,9 @@ async fn main() -> Result<()> {
                                 // Accept: create call room, send CallAccepted, join room
                                 let room_name = format!("call_{}_{}", caller, state.username);
                                 let my_name = state.username.clone();
-                                match create_token(&api_key, &api_secret, &my_name, &room_name) {
+                                match create_token(&state.api_key, &state.api_secret, &my_name, &room_name) {
                                     Ok(token) => {
-                                        match Room::connect(&lk_url, &token, RoomOptions::default()).await {
+                                        match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
                                             Ok((call_room, rx_call)) => {
                                                 // Notify caller
                                                 if let Some(lobby) = &state.livekit_lobby {
@@ -359,6 +375,12 @@ async fn main() -> Result<()> {
                                     pub_track.unmute();
                                 }
                             }
+                        }
+                        KeyCode::Char('r') => {
+                            state.render_mode = match state.render_mode {
+                                livekit_tui_client::app_state::RenderMode::Braille => livekit_tui_client::app_state::RenderMode::HalfBlock,
+                                livekit_tui_client::app_state::RenderMode::HalfBlock => livekit_tui_client::app_state::RenderMode::Braille,
+                            };
                         }
                         _ => {}
                     },
