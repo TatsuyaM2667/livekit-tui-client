@@ -1,6 +1,6 @@
 use crate::app_state::{AppScreen, AppState, StatusKind};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Margin, Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
@@ -29,18 +29,34 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
         AppScreen::Ringing { .. } | AppScreen::Calling { .. } => " Calling... ".to_string(),
         AppScreen::JoinRoom => " Group Call — Create or Join a Room ".to_string(),
         AppScreen::InCall => {
-            let mic_status = if state.is_muted { "OFF (Muted)" } else { "ON (Active)" };
-            let room_info = if state.room_name.is_empty() { String::new() } else { format!(" | Room: {}", state.room_name) };
+            let mic_status = if state.is_muted {
+                "OFF (Muted)"
+            } else {
+                "ON (Active)"
+            };
+            let room_info = if state.room_name.is_empty() {
+                String::new()
+            } else {
+                format!(" | Room: {}", state.room_name)
+            };
             format!(" In Call | Mic: {}{} ", mic_status, room_info)
-        },
+        }
         AppScreen::Error(_) => " Error ".to_string(),
         AppScreen::RoomBrowser => " Public Room Browser ".to_string(),
         AppScreen::InviteRoom { room_name, .. } => format!(" Invite to \"{}\" ", room_name),
     };
 
     let header = Paragraph::new(header_text)
-        .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
-        .block(Block::default().title(" LiveKit Voice & Video TUI ").borders(Borders::ALL));
+        .style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(
+            Block::default()
+                .title(" LiveKit Voice & Video TUI ")
+                .borders(Borders::ALL),
+        );
     frame.render_widget(header, main_chunks[0]);
 
     match &state.screen {
@@ -64,7 +80,7 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
             frame.render_widget(widget, main_chunks[1]);
         }
         AppScreen::Ringing { caller } => {
-            let info = format!("{}から着信中！\n\n[y] 応答  [n] 拒否", caller);
+            let info = format!("{}から着信中\n\n[y] 応答  [n] 拒否", caller);
             let widget = Paragraph::new(info)
                 .alignment(Alignment::Center)
                 .block(Block::default().borders(Borders::ALL));
@@ -76,7 +92,10 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
         AppScreen::RoomBrowser => {
             render_room_browser(frame, state, main_chunks[1]);
         }
-        AppScreen::InviteRoom { room_name, invited_users } => {
+        AppScreen::InviteRoom {
+            room_name,
+            invited_users,
+        } => {
             render_invite_room(frame, state, main_chunks[1], room_name, invited_users);
         }
         AppScreen::Error(msg) => {
@@ -90,16 +109,22 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
     }
 
     let footer_text = match &state.screen {
-        AppScreen::Login        => " [Tab] 次のフィールド | [Enter] 接続 | [Esc] 終了 ",
-        AppScreen::ContactList  => " [↑↓] 移動 | [Enter] 発信 | [j] ルーム作成 | [b] ルームブラウザ | [s] 設定 | [q] 終了 ",
-        AppScreen::Settings     => " [Tab] 次のフィールド | [Enter] 保存して戻る | [Esc] キャンセル ",
-        AppScreen::JoinRoom     => " [Enter] 招待画面へ | [p] 公開/非公開切替 | [Esc] 戻る ",
-        AppScreen::RoomBrowser  => " [↑↓] 移動 | [Enter] 参加 | [c] コンタクトリスト | [j] ルーム作成 | [Esc] 戻る ",
-        AppScreen::InviteRoom { .. } => " [↑↓] 移動 | [Space] 選択/解除 | [Enter] 招待して参加 | [Esc] 戻る ",
+        AppScreen::Login => " [Tab] 次のフィールド | [Enter] 接続 | [Esc] 終了 ",
+        AppScreen::ContactList => {
+            " [↑↓] 移動 | [Enter] 発信 | [j] ルーム作成 | [b] ルームブラウザ | [s] 設定 | [q] 終了 "
+        }
+        AppScreen::Settings => " [Tab] 次のフィールド | [Enter] 保存して戻る | [Esc] キャンセル ",
+        AppScreen::JoinRoom => " [Enter] 招待画面へ | [p] 公開/非公開切替 | [Esc] 戻る ",
+        AppScreen::RoomBrowser => {
+            " [↑↓] 移動 | [Enter] 参加 | [c] コンタクトリスト | [j] ルーム作成 | [Esc] 戻る "
+        }
+        AppScreen::InviteRoom { .. } => {
+            " [↑↓] 移動 | [Space] 選択/解除 | [Enter] 招待して参加 | [Esc] 戻る "
+        }
         AppScreen::Ringing { .. } => " [y] 応答 | [n] 拒否 | [q] 終了 ",
         AppScreen::Calling { .. } => " [q/Esc] キャンセル ",
-        AppScreen::InCall       => " [m] マイク | [r] レンダラ切替 | [q/Esc] 通話終了 ",
-        AppScreen::Error(_)     => " [任意のキー] 閉じる ",
+        AppScreen::InCall => " [m] マイク | [r] レンダラ切替 | [q/Esc] 通話終了 ",
+        AppScreen::Error(_) => " [任意のキー] 閉じる ",
     };
 
     let footer = Paragraph::new(footer_text)
@@ -119,14 +144,24 @@ fn render_login(frame: &mut Frame, state: &AppState, area: Rect) {
     ];
 
     let mut lines = vec![Line::from(Span::styled(
-        "接続情報を入力してください",
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        "接続情報を入力...",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
     ))];
     lines.push(Line::from(""));
 
     for (label, val, idx) in fields {
-        let cursor = if state.active_input_index == idx { "\u{2588}" } else { "" };
-        let prefix = if state.active_input_index == idx { "> " } else { "  " };
+        let cursor = if state.active_input_index == idx {
+            "\u{2588}"
+        } else {
+            ""
+        };
+        let prefix = if state.active_input_index == idx {
+            "> "
+        } else {
+            "  "
+        };
         let display_val = if idx == 3 && !val.is_empty() {
             "*".repeat(val.len())
         } else {
@@ -134,7 +169,9 @@ fn render_login(frame: &mut Frame, state: &AppState, area: Rect) {
         };
 
         let style = if state.active_input_index == idx {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
@@ -146,9 +183,11 @@ fn render_login(frame: &mut Frame, state: &AppState, area: Rect) {
         lines.push(Line::from(""));
     }
 
-    let widget = Paragraph::new(lines)
-        .alignment(Alignment::Left)
-        .block(Block::default().borders(Borders::ALL).padding(ratatui::widgets::Padding::new(4, 4, 2, 2)));
+    let widget = Paragraph::new(lines).alignment(Alignment::Left).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .padding(ratatui::widgets::Padding::new(4, 4, 2, 2)),
+    );
     frame.render_widget(widget, area);
 }
 
@@ -161,7 +200,11 @@ fn render_contact_list(frame: &mut Frame, state: &AppState, area: Rect) {
     };
 
     let mut items = Vec::new();
-    let filtered: Vec<&String> = state.users.iter().filter(|u| *u != &state.username).collect();
+    let filtered: Vec<&String> = state
+        .users
+        .iter()
+        .filter(|u| *u != &state.username)
+        .collect();
 
     for (i, user) in filtered.iter().enumerate() {
         let sig = quality_map.get(*user).copied().unwrap_or(0);
@@ -183,8 +226,11 @@ fn render_contact_list(frame: &mut Frame, state: &AppState, area: Rect) {
         )));
     }
 
-    let list = List::new(items)
-        .block(Block::default().title(" ユーザーを選んで発信 (↑↓ Enter) ").borders(Borders::ALL));
+    let list = List::new(items).block(
+        Block::default()
+            .title(" ユーザーを選んで発信 (↑↓ Enter) ")
+            .borders(Borders::ALL),
+    );
     frame.render_widget(list, area);
 }
 
@@ -193,32 +239,50 @@ fn render_contact_list(frame: &mut Frame, state: &AppState, area: Rect) {
 fn render_settings(frame: &mut Frame, state: &AppState, area: Rect) {
     let fields: Vec<(&str, &String, usize)> = vec![
         ("LiveKit URL", &state.livekit_url, 0usize),
-        ("API Key",     &state.api_key,     1),
-        ("API Secret",  &state.api_secret,  2),
+        ("API Key", &state.api_key, 1),
+        ("API Secret", &state.api_secret, 2),
     ];
 
     let renderer_val = match state.render_mode {
-        crate::app_state::RenderMode::Braille  => "Odin (Braille)".to_string(),
+        crate::app_state::RenderMode::Braille => "Odin (Braille)".to_string(),
         crate::app_state::RenderMode::HalfBlock => "Zig (HalfBlock)".to_string(),
     };
 
     let mut lines = vec![
-        Line::from(Span::styled("接続設定", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "接続設定",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
-        Line::from(Span::styled("次回ログイン時に反映されます", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled(
+            "次回ログイン時に反映されます",
+            Style::default().fg(Color::DarkGray),
+        )),
         Line::from(""),
     ];
 
     for (label, val, idx) in &fields {
-        let cursor = if state.active_input_index == *idx { "\u{2588}" } else { "" };
-        let prefix = if state.active_input_index == *idx { "> " } else { "  " };
+        let cursor = if state.active_input_index == *idx {
+            "\u{2588}"
+        } else {
+            ""
+        };
+        let prefix = if state.active_input_index == *idx {
+            "> "
+        } else {
+            "  "
+        };
         let display_val = if *idx == 2 && !val.is_empty() {
             "*".repeat(val.len())
         } else {
             (*val).clone()
         };
         let style = if state.active_input_index == *idx {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
@@ -229,10 +293,20 @@ fn render_settings(frame: &mut Frame, state: &AppState, area: Rect) {
         lines.push(Line::from(""));
     }
 
-    let cursor = if state.active_input_index == 3 { " < >" } else { "" };
-    let prefix = if state.active_input_index == 3 { "> " } else { "  " };
+    let cursor = if state.active_input_index == 3 {
+        " < >"
+    } else {
+        ""
+    };
+    let prefix = if state.active_input_index == 3 {
+        "> "
+    } else {
+        "  "
+    };
     let style = if state.active_input_index == 3 {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
@@ -242,9 +316,11 @@ fn render_settings(frame: &mut Frame, state: &AppState, area: Rect) {
     )));
     lines.push(Line::from(""));
 
-    let widget = Paragraph::new(lines)
-        .alignment(Alignment::Left)
-        .block(Block::default().borders(Borders::ALL).padding(ratatui::widgets::Padding::new(4, 4, 2, 2)));
+    let widget = Paragraph::new(lines).alignment(Alignment::Left).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .padding(ratatui::widgets::Padding::new(4, 4, 2, 2)),
+    );
     frame.render_widget(widget, area);
 }
 
@@ -257,13 +333,23 @@ fn render_join_room(frame: &mut Frame, state: &AppState, area: Rect) {
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(area);
 
-    let visibility_str   = if state.room_is_public { "公開 (Public)" } else { "非公開 (Private)" };
-    let visibility_color = if state.room_is_public { Color::Green } else { Color::Red };
+    let visibility_str = if state.room_is_public {
+        "公開 (Public)"
+    } else {
+        "非公開 (Private)"
+    };
+    let visibility_color = if state.room_is_public {
+        Color::Green
+    } else {
+        Color::Red
+    };
 
     let mut lines = vec![
         Line::from(Span::styled(
             "グループ通話 — ルームを作成/参加",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(Span::styled(
@@ -273,7 +359,12 @@ fn render_join_room(frame: &mut Frame, state: &AppState, area: Rect) {
         Line::from(""),
         Line::from(vec![
             Span::styled("公開設定: ", Style::default().fg(Color::White)),
-            Span::styled(visibility_str, Style::default().fg(visibility_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                visibility_str,
+                Style::default()
+                    .fg(visibility_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("  — [p] で切替", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(""),
@@ -290,9 +381,14 @@ fn render_join_room(frame: &mut Frame, state: &AppState, area: Rect) {
     let style = if state.input_buffer.is_empty() {
         Style::default().fg(Color::DarkGray)
     } else {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     };
-    lines.push(Line::from(Span::styled(format!("  {}{}", display, cursor), style)));
+    lines.push(Line::from(Span::styled(
+        format!("  {}{}", display, cursor),
+        style,
+    )));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "  [Enter] 招待画面へ  |  [p] 公開/非公開  |  [Esc] 戻る",
@@ -301,29 +397,39 @@ fn render_join_room(frame: &mut Frame, state: &AppState, area: Rect) {
     lines.push(Line::from(""));
     if state.room_is_public {
         lines.push(Line::from(Span::styled(
-            "💡 公開ルームはルームブラウザに表示されます",
+            "公開ルームはルームブラウザに表示されます",
             Style::default().fg(Color::Green),
         )));
     }
 
-    let widget = Paragraph::new(lines)
-        .alignment(Alignment::Left)
-        .block(Block::default().borders(Borders::ALL).padding(ratatui::widgets::Padding::new(2, 2, 1, 1)));
+    let widget = Paragraph::new(lines).alignment(Alignment::Left).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .padding(ratatui::widgets::Padding::new(2, 2, 1, 1)),
+    );
     frame.render_widget(widget, chunks[0]);
 
     // 右パネル: 招待可能なオンラインユーザー
-    let online: Vec<&String> = state.users.iter().filter(|u| *u != &state.username).collect();
-    let mut user_items: Vec<ListItem> = online.iter().map(|u| {
-        ListItem::new(format!("👤 {}", u)).style(Style::default().fg(Color::White))
-    }).collect();
+    let online: Vec<&String> = state
+        .users
+        .iter()
+        .filter(|u| *u != &state.username)
+        .collect();
+    let mut user_items: Vec<ListItem> = online
+        .iter()
+        .map(|u| ListItem::new(format!("👤 {}", u)).style(Style::default().fg(Color::White)))
+        .collect();
     if user_items.is_empty() {
         user_items.push(ListItem::new(Span::styled(
             "  オンラインユーザーなし",
             Style::default().fg(Color::DarkGray),
         )));
     }
-    let user_list = List::new(user_items)
-        .block(Block::default().title(" オンラインユーザー ").borders(Borders::ALL));
+    let user_list = List::new(user_items).block(
+        Block::default()
+            .title(" オンラインユーザー ")
+            .borders(Borders::ALL),
+    );
     frame.render_widget(user_list, chunks[1]);
 }
 
@@ -337,7 +443,11 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
 
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(6), Constraint::Length(7)])
+        .constraints([
+            Constraint::Min(3),
+            Constraint::Length(6),
+            Constraint::Length(7),
+        ])
         .split(body_chunks[0]);
 
     let quality_map = {
@@ -354,7 +464,11 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
                 if state.is_muted { "🔇" } else { "🎙️" },
                 r.local_participant().identity()
             ))
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            .style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         );
 
         for (_, participant) in r.remote_participants() {
@@ -369,20 +483,20 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
                 3 => "強",
                 _ => "?",
             };
-            participant_items.push(ListItem::new(
-                Line::from(vec![
-                    Span::styled("🎙️ ", Style::default()),
-                    Span::styled(id.clone(), Style::default().fg(Color::White)),
-                    Span::raw("  "),
-                    Span::styled(format!("{} {} ({})", icon, bars, sig_label), Style::default().fg(signal_color(sig))),
-                ])
-            ));
+            participant_items.push(ListItem::new(Line::from(vec![
+                Span::styled("🎙️ ", Style::default()),
+                Span::styled(id.clone(), Style::default().fg(Color::White)),
+                Span::raw("  "),
+                Span::styled(
+                    format!("{} {} ({})", icon, bars, sig_label),
+                    Style::default().fg(signal_color(sig)),
+                ),
+            ])));
         }
     }
 
-    let participants_list = List::new(participant_items).block(
-        Block::default().title(" 参加者 ").borders(Borders::ALL),
-    );
+    let participants_list = List::new(participant_items)
+        .block(Block::default().title(" 参加者 ").borders(Borders::ALL));
     frame.render_widget(participants_list, left_chunks[0]);
 
     // ── ステータスメッセージ ──
@@ -395,14 +509,19 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
         d.clone()
     };
 
-    let msg_lines: Vec<Line> = status_msgs.iter().rev().take(4).map(|(m, kind)| {
-        let color = match kind {
-            StatusKind::Join  => Color::Green,
-            StatusKind::Leave => Color::Red,
-            StatusKind::Info  => Color::Yellow,
-        };
-        Line::from(Span::styled(m.clone(), Style::default().fg(color)))
-    }).collect();
+    let msg_lines: Vec<Line> = status_msgs
+        .iter()
+        .rev()
+        .take(4)
+        .map(|(m, kind)| {
+            let color = match kind {
+                StatusKind::Join => Color::Green,
+                StatusKind::Leave => Color::Red,
+                StatusKind::Info => Color::Yellow,
+            };
+            Line::from(Span::styled(m.clone(), Style::default().fg(color)))
+        })
+        .collect();
 
     let notif_title = if disconnected.is_some() {
         " ⚠ 通知 (切断あり) "
@@ -414,11 +533,12 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
     } else {
         Style::default()
     };
-    let msg_widget = Paragraph::new(msg_lines)
-        .block(Block::default()
+    let msg_widget = Paragraph::new(msg_lines).block(
+        Block::default()
             .title(notif_title)
             .borders(Borders::ALL)
-            .style(notif_border_style));
+            .style(notif_border_style),
+    );
     frame.render_widget(msg_widget, left_chunks[1]);
 
     // ── 音声レベルメーター ──
@@ -432,7 +552,7 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
     };
 
     let meter_width = (left_chunks[2].width as usize).saturating_sub(10).min(20);
-    let in_bar  = render_vu_bar(input_level, meter_width);
+    let in_bar = render_vu_bar(input_level, meter_width);
     let out_bar = render_vu_bar(output_level, meter_width);
 
     let mic_status = if state.is_muted { "MUTED" } else { "ACTIVE" };
@@ -452,7 +572,10 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
 
     // ── 動画エリア ──
     frame.render_widget(Clear, body_chunks[1]);
-    let video_area = body_chunks[1].inner(Margin { vertical: 1, horizontal: 1 });
+    let video_area = body_chunks[1].inner(Margin {
+        vertical: 1,
+        horizontal: 1,
+    });
 
     let local_video = {
         let lock = state.local_video_frame.lock().unwrap();
@@ -463,8 +586,10 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
         lock.clone()
     };
 
-    let mut video_parts: Vec<(String, Vec<u8>, u32, u32)> =
-        remote_frames.into_iter().map(|(k, (rgb, w, h))| (k, rgb, w, h)).collect();
+    let mut video_parts: Vec<(String, Vec<u8>, u32, u32)> = remote_frames
+        .into_iter()
+        .map(|(k, (rgb, w, h))| (k, rgb, w, h))
+        .collect();
     video_parts.sort_by(|a, b| a.0.cmp(&b.0));
 
     if video_parts.is_empty() {
@@ -476,17 +601,33 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
             let rect = Rect::new(cx, cy, tw as u16, th as u16);
             let inner_w = (tw as u16).saturating_sub(2);
             let inner_h = (th as u16).saturating_sub(2);
-            let lines = render_video_lines(&lrgb, lw, lh, inner_w as u32, inner_h as u32, state.render_mode);
+            let lines = render_video_lines(
+                &lrgb,
+                lw,
+                lh,
+                inner_w as u32,
+                inner_h as u32,
+                state.render_mode,
+            );
             frame.render_widget(Clear, rect);
             frame.render_widget(
-                Paragraph::new(lines).block(Block::default().title(" You ").borders(Borders::ALL).style(Style::default().fg(Color::Cyan))),
+                Paragraph::new(lines).block(
+                    Block::default()
+                        .title(" You ")
+                        .borders(Borders::ALL)
+                        .style(Style::default().fg(Color::Cyan)),
+                ),
                 rect,
             );
         } else {
             frame.render_widget(
                 Paragraph::new("リモート映像を待っています...")
                     .alignment(Alignment::Center)
-                    .block(Block::default().title(" Video Stream ").borders(Borders::ALL)),
+                    .block(
+                        Block::default()
+                            .title(" Video Stream ")
+                            .borders(Borders::ALL),
+                    ),
                 body_chunks[1],
             );
         }
@@ -509,11 +650,22 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
                 continue;
             }
 
-            let lines = render_video_lines(rgb, *w, *h, inner_w as u32, inner_h as u32, state.render_mode);
+            let lines = render_video_lines(
+                rgb,
+                *w,
+                *h,
+                inner_w as u32,
+                inner_h as u32,
+                state.render_mode,
+            );
             frame.render_widget(Clear, tile_rect);
             frame.render_widget(
-                Paragraph::new(lines)
-                    .block(Block::default().title(format!(" {} ", identity)).borders(Borders::ALL).style(Style::default().fg(Color::Green))),
+                Paragraph::new(lines).block(
+                    Block::default()
+                        .title(format!(" {} ", identity))
+                        .borders(Borders::ALL)
+                        .style(Style::default().fg(Color::Green)),
+                ),
                 tile_rect,
             );
         }
@@ -528,11 +680,22 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
             let pip_y = video_area.y + 1;
             let pip_area = Rect::new(pip_x, pip_y, pip_w, pip_h);
             if pip_area.right() <= video_area.right() && pip_area.bottom() <= video_area.bottom() {
-                let pip_lines = render_video_lines(&lrgb, lw, lh, inner_pip_w as u32, inner_pip_h as u32, state.render_mode);
+                let pip_lines = render_video_lines(
+                    &lrgb,
+                    lw,
+                    lh,
+                    inner_pip_w as u32,
+                    inner_pip_h as u32,
+                    state.render_mode,
+                );
                 frame.render_widget(Clear, pip_area);
                 frame.render_widget(
-                    Paragraph::new(pip_lines)
-                        .block(Block::default().title(" You ").borders(Borders::ALL).style(Style::default().fg(Color::Cyan))),
+                    Paragraph::new(pip_lines).block(
+                        Block::default()
+                            .title(" You ")
+                            .borders(Borders::ALL)
+                            .style(Style::default().fg(Color::Cyan)),
+                    ),
                     pip_area,
                 );
             }
@@ -555,10 +718,12 @@ fn render_in_call(frame: &mut Frame, state: &AppState, area: Rect) {
             Paragraph::new(popup_text)
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Red))
-                .block(Block::default()
-                    .title(" 切断通知 ")
-                    .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))),
+                .block(
+                    Block::default()
+                        .title(" 切断通知 ")
+                        .borders(Borders::ALL)
+                        .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                ),
             popup_area,
         );
     }
@@ -583,17 +748,33 @@ fn render_room_browser(frame: &mut Frame, state: &AppState, area: Rect) {
 
     if announced.is_empty() {
         let lines = vec![
-            Line::from(Span::styled("公開ルームブラウザ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "公開ルームブラウザ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Line::from(""),
-            Line::from(Span::styled("現在参加可能な公開ルームはありません", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "現在参加可能な公開ルームはありません",
+                Style::default().fg(Color::DarkGray),
+            )),
             Line::from(""),
-            Line::from(Span::styled("  [j] でルームを作成して公開できます！", Style::default().fg(Color::Green))),
+            Line::from(Span::styled(
+                "  [j] ルームを作成して公開",
+                Style::default().fg(Color::Green),
+            )),
             Line::from(""),
-            Line::from(Span::styled("  [c] コンタクトリストへ", Style::default().fg(Color::DarkGray))),
+            Line::from(Span::styled(
+                "  [c] 個人通話リスト",
+                Style::default().fg(Color::DarkGray),
+            )),
         ];
-        let widget = Paragraph::new(lines)
-            .alignment(Alignment::Left)
-            .block(Block::default().borders(Borders::ALL).padding(ratatui::widgets::Padding::new(4, 4, 2, 2)));
+        let widget = Paragraph::new(lines).alignment(Alignment::Left).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .padding(ratatui::widgets::Padding::new(4, 4, 2, 2)),
+        );
         frame.render_widget(widget, area);
         return;
     }
@@ -605,25 +786,35 @@ fn render_room_browser(frame: &mut Frame, state: &AppState, area: Rect) {
         } else {
             Style::default().fg(Color::White)
         };
-        let marker = if i == state.selected_index { "▶ " } else { "  " };
-        items.push(ListItem::new(
-            Line::from(vec![
-                Span::styled(marker, style),
-                Span::styled(format!("🏠 {} ", room.name), style.add_modifier(Modifier::BOLD)),
-                Span::styled(format!("(作成者: {})", room.owner), Style::default().fg(Color::DarkGray)),
-            ])
-        ));
+        let marker = if i == state.selected_index {
+            "▶ "
+        } else {
+            "  "
+        };
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(marker, style),
+            Span::styled(
+                format!("🏠 {} ", room.name),
+                style.add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("(作成者: {})", room.owner),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ])));
     }
 
-    let list = List::new(items)
-        .block(Block::default()
-            .title(" 🌐 参加可能な公開ルーム一覧 ")
-            .borders(Borders::ALL));
+    let list = List::new(items).block(
+        Block::default()
+            .title(" 参加可能な公開ルーム一覧 ")
+            .borders(Borders::ALL),
+    );
     frame.render_widget(list, chunks[0]);
 
-    let hint = Paragraph::new(" [↑↓] 移動  [Enter] 参加  [c] コンタクト  [j] ルーム作成  [Esc] 戻る ")
-        .style(Style::default().fg(Color::DarkGray))
-        .block(Block::default().borders(Borders::ALL));
+    let hint =
+        Paragraph::new(" [↑↓] 移動  [Enter] 参加  [c] コンタクト  [j] ルーム作成  [Esc] 戻る ")
+            .style(Style::default().fg(Color::DarkGray))
+            .block(Block::default().borders(Borders::ALL));
     frame.render_widget(hint, chunks[1]);
 }
 
@@ -636,7 +827,11 @@ fn render_invite_room(
     room_name: &str,
     invited_users: &[String],
 ) {
-    let filtered: Vec<&String> = state.users.iter().filter(|u| *u != &state.username).collect();
+    let filtered: Vec<&String> = state
+        .users
+        .iter()
+        .filter(|u| *u != &state.username)
+        .collect();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -647,7 +842,9 @@ fn render_invite_room(
     let header_lines = vec![
         Line::from(Span::styled(
             format!("ルーム \"{}\" に招待するユーザーを選択", room_name),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(Span::styled(
@@ -655,15 +852,18 @@ fn render_invite_room(
             Style::default().fg(Color::DarkGray),
         )),
     ];
-    let header_widget = Paragraph::new(header_lines)
-        .block(Block::default().borders(Borders::ALL).padding(ratatui::widgets::Padding::new(2, 2, 0, 0)));
+    let header_widget = Paragraph::new(header_lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .padding(ratatui::widgets::Padding::new(2, 2, 0, 0)),
+    );
     frame.render_widget(header_widget, chunks[0]);
 
     // ユーザーリスト
     let mut items: Vec<ListItem> = Vec::new();
     if filtered.is_empty() {
         items.push(ListItem::new(Span::styled(
-            "  招待可能なオンラインユーザーはいません",
+            "  招待可能なオンラインユーザーなし",
             Style::default().fg(Color::DarkGray),
         )));
     } else {
@@ -677,43 +877,68 @@ fn render_invite_room(
             } else {
                 (Color::Reset, Color::White)
             };
-            let check_color = if is_selected { Color::Green } else { Color::DarkGray };
+            let check_color = if is_selected {
+                Color::Green
+            } else {
+                Color::DarkGray
+            };
 
-            items.push(ListItem::new(
-                Line::from(vec![
-                    Span::styled(
-                        if is_cursor { "▶ " } else { "  " },
-                        Style::default().fg(Color::Cyan),
-                    ),
-                    Span::styled(checkbox, Style::default().fg(check_color).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!(" 👤 {}", user), Style::default().fg(fg).bg(bg)),
-                ])
-            ));
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled(
+                    if is_cursor { "▶ " } else { "  " },
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(
+                    checkbox,
+                    Style::default()
+                        .fg(check_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!(" 👤 {}", user), Style::default().fg(fg).bg(bg)),
+            ])));
         }
     }
 
     let selected_count = invited_users.len();
     let title = format!(" ユーザーを招待 ({} 人選択中) ", selected_count);
-    let list = List::new(items)
-        .block(Block::default().title(title.as_str()).borders(Borders::ALL));
+    let list = List::new(items).block(Block::default().title(title.as_str()).borders(Borders::ALL));
     frame.render_widget(list, chunks[1]);
 }
 
 // ── ユーティリティ ────────────────────────────────────────────────────────────
 
 fn grid_dims(n: usize) -> (u32, u32) {
-    if n == 0 { return (1, 1); }
-    if n <= 1 { return (1, 1); }
-    if n <= 2 { return (2, 1); }
-    if n <= 4 { return (2, 2); }
-    if n <= 6 { return (3, 2); }
-    if n <= 9 { return (3, 3); }
+    if n == 0 {
+        return (1, 1);
+    }
+    if n <= 1 {
+        return (1, 1);
+    }
+    if n <= 2 {
+        return (2, 1);
+    }
+    if n <= 4 {
+        return (2, 2);
+    }
+    if n <= 6 {
+        return (3, 2);
+    }
+    if n <= 9 {
+        return (3, 3);
+    }
     let cols = (n as f64).sqrt().ceil() as u32;
     let rows = ((n as f64) / cols as f64).ceil() as u32;
     (cols, rows)
 }
 
-fn render_video_lines(rgb: &[u8], w: u32, h: u32, target_w: u32, target_h: u32, mode: crate::app_state::RenderMode) -> Vec<Line<'static>> {
+fn render_video_lines(
+    rgb: &[u8],
+    w: u32,
+    h: u32,
+    target_w: u32,
+    target_h: u32,
+    mode: crate::app_state::RenderMode,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     match mode {
         crate::app_state::RenderMode::Braille => {
@@ -724,13 +949,20 @@ fn render_video_lines(rgb: &[u8], w: u32, h: u32, target_w: u32, target_h: u32, 
                     let idx = ((cy * target_w + cx) * 8) as usize;
                     if idx + 7 < cells.len() {
                         let code_point = u32::from_le_bytes([
-                            cells[idx], cells[idx + 1], cells[idx + 2], cells[idx + 3],
+                            cells[idx],
+                            cells[idx + 1],
+                            cells[idx + 2],
+                            cells[idx + 3],
                         ]);
                         let ch = char::from_u32(code_point).unwrap_or(' ');
                         let r = cells[idx + 4];
                         let g = cells[idx + 5];
                         let b = cells[idx + 6];
-                        let s = if ch == '\0' || ch == ' ' { " ".to_string() } else { ch.to_string() };
+                        let s = if ch == '\0' || ch == ' ' {
+                            " ".to_string()
+                        } else {
+                            ch.to_string()
+                        };
                         spans.push(Span::styled(s, Style::default().fg(Color::Rgb(r, g, b))));
                     }
                 }
@@ -766,7 +998,8 @@ fn render_vu_bar(level: f32, width: usize) -> String {
     let filled = ((level * 8.0).min(1.0).sqrt() * width as f32) as usize;
     let filled = filled.min(width);
     let empty = width.saturating_sub(filled);
-    let bar: String = std::iter::repeat('█').take(filled)
+    let bar: String = std::iter::repeat('█')
+        .take(filled)
         .chain(std::iter::repeat('░').take(empty))
         .collect();
     format!("[{}]", bar)
