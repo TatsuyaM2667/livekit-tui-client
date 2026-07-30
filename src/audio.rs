@@ -8,7 +8,29 @@ use livekit::webrtc::prelude::*;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-pub async fn setup_microphone(room: &Room) -> Option<LocalTrackPublication> {
+fn compute_rms_level_i16(data: &[i16]) -> f32 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f32 = data.iter().map(|&s| {
+        let f = s as f32 / 32768.0;
+        f * f
+    }).sum();
+    (sum_sq / data.len() as f32).sqrt()
+}
+
+fn compute_rms_level_f32(data: &[f32]) -> f32 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f32 = data.iter().map(|&s| s * s).sum();
+    (sum_sq / data.len() as f32).sqrt()
+}
+
+pub async fn setup_microphone(
+    room: &Room,
+    input_level: Arc<Mutex<f32>>,
+) -> Option<LocalTrackPublication> {
     let audio_source = NativeAudioSource::new(
         AudioSourceOptions {
             echo_cancellation: true,
@@ -67,56 +89,80 @@ pub async fn setup_microphone(room: &Room) -> Option<LocalTrackPublication> {
     let err_fn = move |err| eprintln!("[audio] Capture stream error: {}", err);
 
     let input_stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            &config.into(),
-            move |data: &[f32], _: &_| {
-                let pcm16: Vec<i16> = data
-                    .iter()
-                    .map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16)
-                    .collect();
-                let samples_per_channel = (pcm16.len() as u32) / channels;
-                let _ = audio_src.capture_frame(&AudioFrame {
-                    data: pcm16.into(),
-                    sample_rate,
-                    num_channels: channels,
-                    samples_per_channel,
-                });
-            },
-            err_fn,
-            None,
-        ),
-        cpal::SampleFormat::I16 => device.build_input_stream(
-            &config.into(),
-            move |data: &[i16], _: &_| {
-                let samples_per_channel = (data.len() as u32) / channels;
-                let _ = audio_src.capture_frame(&AudioFrame {
-                    data: data.to_vec().into(),
-                    sample_rate,
-                    num_channels: channels,
-                    samples_per_channel,
-                });
-            },
-            err_fn,
-            None,
-        ),
-        cpal::SampleFormat::U16 => device.build_input_stream(
-            &config.into(),
-            move |data: &[u16], _: &_| {
-                let pcm16: Vec<i16> = data
-                    .iter()
-                    .map(|&s| (s as i32 - 32768).clamp(-32768, 32767) as i16)
-                    .collect();
-                let samples_per_channel = (pcm16.len() as u32) / channels;
-                let _ = audio_src.capture_frame(&AudioFrame {
-                    data: pcm16.into(),
-                    sample_rate,
-                    num_channels: channels,
-                    samples_per_channel,
-                });
-            },
-            err_fn,
-            None,
-        ),
+        cpal::SampleFormat::F32 => {
+            let level = input_level.clone();
+            device.build_input_stream(
+                &config.into(),
+                move |data: &[f32], _: &_| {
+                    let rms = compute_rms_level_f32(data);
+                    {
+                        let mut l = level.lock().unwrap();
+                        *l = rms;
+                    }
+                    let pcm16: Vec<i16> = data
+                        .iter()
+                        .map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16)
+                        .collect();
+                    let samples_per_channel = (pcm16.len() as u32) / channels;
+                    let _ = audio_src.capture_frame(&AudioFrame {
+                        data: pcm16.into(),
+                        sample_rate,
+                        num_channels: channels,
+                        samples_per_channel,
+                    });
+                },
+                err_fn,
+                None,
+            )
+        }
+        cpal::SampleFormat::I16 => {
+            let level = input_level.clone();
+            device.build_input_stream(
+                &config.into(),
+                move |data: &[i16], _: &_| {
+                    let rms = compute_rms_level_i16(data);
+                    {
+                        let mut l = level.lock().unwrap();
+                        *l = rms;
+                    }
+                    let samples_per_channel = (data.len() as u32) / channels;
+                    let _ = audio_src.capture_frame(&AudioFrame {
+                        data: data.to_vec().into(),
+                        sample_rate,
+                        num_channels: channels,
+                        samples_per_channel,
+                    });
+                },
+                err_fn,
+                None,
+            )
+        }
+        cpal::SampleFormat::U16 => {
+            let level = input_level.clone();
+            device.build_input_stream(
+                &config.into(),
+                move |data: &[u16], _: &_| {
+                    let pcm16: Vec<i16> = data
+                        .iter()
+                        .map(|&s| (s as i32 - 32768).clamp(-32768, 32767) as i16)
+                        .collect();
+                    let rms = compute_rms_level_i16(&pcm16);
+                    {
+                        let mut l = level.lock().unwrap();
+                        *l = rms;
+                    }
+                    let samples_per_channel = (pcm16.len() as u32) / channels;
+                    let _ = audio_src.capture_frame(&AudioFrame {
+                        data: pcm16.into(),
+                        sample_rate,
+                        num_channels: channels,
+                        samples_per_channel,
+                    });
+                },
+                err_fn,
+                None,
+            )
+        }
         other => {
             eprintln!("[audio] Unsupported input sample format: {:?}", other);
             return Some(publication);
@@ -139,7 +185,10 @@ pub async fn setup_microphone(room: &Room) -> Option<LocalTrackPublication> {
     Some(publication)
 }
 
-pub fn spawn_speaker_task(audio_track: RemoteAudioTrack) {
+pub fn spawn_speaker_task(
+    audio_track: RemoteAudioTrack,
+    output_level: Arc<Mutex<f32>>,
+) {
     let handle = tokio::runtime::Handle::current();
     std::thread::spawn(move || {
         handle.block_on(async move {
@@ -224,6 +273,7 @@ pub fn spawn_speaker_task(audio_track: RemoteAudioTrack) {
                 }
             };
 
+            let level_ref = output_level.clone();
             match stream_res {
                 Ok(stream) => {
                     if let Err(e) = stream.play() {
@@ -231,6 +281,11 @@ pub fn spawn_speaker_task(audio_track: RemoteAudioTrack) {
                         return;
                     }
                     while let Some(frame) = native_stream.next().await {
+                        let rms = compute_rms_level_i16(&frame.data);
+                        {
+                            let mut l = level_ref.lock().unwrap();
+                            *l = rms;
+                        }
                         let mut buf = sample_buffer.lock().unwrap();
                         for &s in frame.data.iter() {
                             buf.push_back((s as f32) / 32768.0);

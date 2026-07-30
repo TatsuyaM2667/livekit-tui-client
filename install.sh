@@ -56,17 +56,45 @@ fi
 
 if ! command -v odin &> /dev/null; then
     echo "[*] Odin not found. Downloading static binary..."
-    # Fetch latest Odin release tag from GitHub API
-    ODIN_TAG=$(curl -sSfL "https://api.github.com/repos/odin-lang/Odin/releases/latest" | grep '"tag_name"' | cut -d'"' -f4 2>/dev/null || echo "dev-2025-04")
-    ODIN_URL="https://github.com/odin-lang/Odin/releases/download/${ODIN_TAG}/odin-ubuntu-amd64-${ODIN_TAG}.zip"
+
+    # Resolve actual download URL from GitHub API
+    API_URL="https://api.github.com/repos/odin-lang/Odin/releases/latest"
+    ODIN_URL=$(curl -sSfL "$API_URL" 2>/dev/null \
+        | grep -o '"browser_download_url": "[^"]*linux[^"]*"' \
+        | head -1 | cut -d'"' -f4)
+
+    if [ -z "$ODIN_URL" ]; then
+        ODIN_URL=$(curl -sSfL "$API_URL" 2>/dev/null \
+            | grep -o '"browser_download_url": "[^"]*ubuntu[^"]*"' \
+            | head -1 | cut -d'"' -f4)
+    fi
+
+    if [ -z "$ODIN_URL" ]; then
+        echo "[!] Could not determine Odin download URL from GitHub API."
+        echo "[*] Falling back to dev-2025-04 release..."
+        ODIN_URL="https://github.com/odin-lang/Odin/releases/download/dev-2025-04/odin-ubuntu-amd64-dev-2025-04.zip"
+    fi
+
     echo "[*] Downloading Odin from ${ODIN_URL} ..."
     if ! wget -qO /tmp/odin.zip "$ODIN_URL"; then
-        # Fallback: try an older known-good version
-        echo "[*] Latest not found, trying dev-2025-04..."
-        wget -qO /tmp/odin.zip "https://github.com/odin-lang/Odin/releases/download/dev-2025-04/odin-ubuntu-amd64-dev-2025-04.zip"
+        echo "[!] Failed to download Odin. Please install manually:"
+        echo "    https://odin-lang.org/docs/install/"
+        exit 1
     fi
+
+    rm -rf /tmp/odin_extracted
+    mkdir -p /tmp/odin_extracted
     unzip -q /tmp/odin.zip -d /tmp/odin_extracted
-    cp -r /tmp/odin_extracted/* "$INSTALL_DIR/"
+
+    # Handle nested top-level directory (common in Odin releases)
+    cd /tmp/odin_extracted
+    if [ "$(ls -1 | wc -l)" -eq 1 ] && [ -d "$(ls -1)" ]; then
+        cd "$(ls -1)"
+    fi
+
+    cp -r ./* "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/odin" 2>/dev/null || true
+    cd /
     rm -rf /tmp/odin.zip /tmp/odin_extracted
 fi
 

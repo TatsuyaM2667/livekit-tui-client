@@ -35,6 +35,8 @@ pub struct AppState {
     pub is_muted: bool,
     pub remote_video_frame: Arc<Mutex<Option<(Vec<u8>, u32, u32)>>>,
     pub render_mode: RenderMode,
+    pub audio_input_level: Arc<Mutex<f32>>,
+    pub audio_output_level: Arc<Mutex<f32>>,
 }
 
 impl AppState {
@@ -54,6 +56,8 @@ impl AppState {
             livekit_room: None,
             is_muted: false,
             remote_video_frame: Arc::new(Mutex::new(None)),
+            audio_input_level: Arc::new(Mutex::new(0.0)),
+            audio_output_level: Arc::new(Mutex::new(0.0)),
             render_mode: match cfg.render_mode.as_deref() {
                 Some("halfblock") => RenderMode::HalfBlock,
                 _ => RenderMode::Braille,

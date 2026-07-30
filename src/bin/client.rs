@@ -246,9 +246,9 @@ async fn main() -> Result<()> {
                             match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
                                 Ok((call_room, rx_call)) => {
                                     state.screen = AppScreen::InCall;
-                                    audio_pub = audio::setup_microphone(&call_room).await;
+                                    audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
                                     video::setup_camera(&call_room).await;
-                                    events::handle_room_events(rx_call, state.remote_video_frame.clone());
+                                    events::handle_room_events(rx_call, state.remote_video_frame.clone(), state.audio_output_level.clone());
                                     state.livekit_room = Some(call_room);
                                 }
                                 Err(e) => {
@@ -357,9 +357,9 @@ async fn main() -> Result<()> {
                                                         let _ = send_signaling(lobby, &accepted).await;
                                                     }
                                                     state.screen = AppScreen::InCall;
-                                                    audio_pub = audio::setup_microphone(&call_room).await;
+                                                    audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
                                                     video::setup_camera(&call_room).await;
-                                                    events::handle_room_events(rx_call, state.remote_video_frame.clone());
+                                                    events::handle_room_events(rx_call, state.remote_video_frame.clone(), state.audio_output_level.clone());
                                                     state.livekit_room = Some(call_room);
                                                 }
                                                 Err(e) => {

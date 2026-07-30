@@ -171,6 +171,11 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
                 .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
                 .split(main_chunks[1]);
 
+            let left_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(3), Constraint::Length(7)])
+                .split(body_chunks[0]);
+
             let mut participant_items = Vec::new();
             if let Some(r) = &state.livekit_room {
                 participant_items.push(
@@ -190,7 +195,35 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
             let participants_list = List::new(participant_items).block(
                 Block::default().title(" Participants ").borders(Borders::ALL),
             );
-            frame.render_widget(participants_list, body_chunks[0]);
+            frame.render_widget(participants_list, left_chunks[0]);
+
+            let input_level = {
+                let l = state.audio_input_level.lock().unwrap();
+                *l
+            };
+            let output_level = {
+                let l = state.audio_output_level.lock().unwrap();
+                *l
+            };
+
+            let meter_width = (left_chunks[1].width as usize).saturating_sub(10).min(20);
+            let in_bar = render_vu_bar(input_level, meter_width);
+            let out_bar = render_vu_bar(output_level, meter_width);
+
+            let mic_status = if state.is_muted { "MUTED" } else { "ACTIVE" };
+            let meter_lines = vec![
+                Line::from(Span::styled(
+                    format!(" IN  {} {}", in_bar, mic_status),
+                    Style::default().fg(level_color(input_level)),
+                )),
+                Line::from(Span::styled(
+                    format!(" OUT {} {}", out_bar, ""),
+                    Style::default().fg(level_color(output_level)),
+                )),
+            ];
+            let meter_widget = Paragraph::new(meter_lines)
+                .block(Block::default().title(" Audio Level ").borders(Borders::ALL));
+            frame.render_widget(meter_widget, left_chunks[1]);
 
             let latest_video = {
                 let lock = state.remote_video_frame.lock().unwrap();
@@ -306,4 +339,29 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
         .style(Style::default().fg(Color::DarkGray))
         .block(Block::default().borders(Borders::ALL));
     frame.render_widget(footer, main_chunks[2]);
+}
+
+fn render_vu_bar(level: f32, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let filled = ((level * 8.0).min(1.0).sqrt() * width as f32) as usize;
+    let filled = filled.min(width);
+    let empty = width.saturating_sub(filled);
+    let bar: String = std::iter::repeat('█').take(filled)
+        .chain(std::iter::repeat('░').take(empty))
+        .collect();
+    format!("[{}]", bar)
+}
+
+fn level_color(level: f32) -> Color {
+    if level > 0.5 {
+        Color::Red
+    } else if level > 0.2 {
+        Color::Yellow
+    } else if level > 0.01 {
+        Color::Green
+    } else {
+        Color::DarkGray
+    }
 }
