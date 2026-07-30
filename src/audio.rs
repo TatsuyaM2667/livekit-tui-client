@@ -87,191 +87,179 @@ pub async fn setup_microphone(
     room: &Room,
     input_level: Arc<Mutex<f32>>,
 ) -> Option<LocalTrackPublication> {
+    // Step 1: Find a working capture device and its config
+    let (dev_name, device, dev_config) = match find_input_device() {
+        Some(d) => d,
+        None => {
+            eprintln!("[audio] No working input device found");
+            // Still publish a silent track so the other side has something
+            let source = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 1, 1000);
+            let track = LocalAudioTrack::create_audio_track("microphone", RtcAudioSource::Native(source));
+            let pub_res = room.local_participant().publish_track(LocalTrack::Audio(track), TrackPublishOptions::default()).await;
+            return match pub_res {
+                Ok(p) => { p.unmute(); Some(p) }
+                Err(e) => { eprintln!("[audio] Failed to publish: {}", e); None }
+            };
+        }
+    };
+
+    let sample_rate = dev_config.sample_rate().0;
+    let num_channels = dev_config.channels() as u32;
+
+    eprintln!("[audio] Using input device: {} ({}Hz {}ch {:?})", dev_name, sample_rate, num_channels, dev_config.sample_format());
+
+    // Step 2: Create source with matching params
     let audio_source = NativeAudioSource::new(
         AudioSourceOptions {
             echo_cancellation: true,
             noise_suppression: true,
             auto_gain_control: true,
         },
-        48000,
-        1,
+        sample_rate,
+        num_channels,
         1000,
     );
 
+    // Step 3: Publish track
     let audio_track = LocalAudioTrack::create_audio_track(
         "microphone",
         RtcAudioSource::Native(audio_source.clone()),
     );
 
-    let pub_res = room
-        .local_participant()
-        .publish_track(
-            LocalTrack::Audio(audio_track),
-            TrackPublishOptions::default(),
-        )
-        .await;
-
-    let publication = match pub_res {
-        Ok(p) => {
-            p.unmute();
-            p
-        }
-        Err(e) => {
-            eprintln!("[audio] Failed to publish microphone track: {}", e);
-            return None;
-        }
+    let publication = match room.local_participant().publish_track(
+        LocalTrack::Audio(audio_track),
+        TrackPublishOptions::default(),
+    ).await {
+        Ok(p) => { p.unmute(); p }
+        Err(e) => { eprintln!("[audio] Failed to publish: {}", e); return None; }
     };
 
-    let audio_src = audio_source.clone();
-    let mut started = false;
-
-    'outer: for host_id in cpal::available_hosts() {
-        let host = match cpal::host_from_id(host_id) {
-            Ok(h) => h,
-            Err(_) => continue,
-        };
-
-        let devices: Vec<_> = match host.input_devices() {
-            Ok(d) => d.filter_map(|d| {
-                let name = d.name().ok();
-                let config = d.default_input_config().ok();
-                (name.is_some() && config.is_some()).then(|| (name.unwrap(), d, config.unwrap()))
-            }).collect(),
-            Err(_) => continue,
-        };
-
-        if devices.is_empty() {
-            // Fall back to default device
-            if let Some(d) = host.default_input_device() {
-                if let Ok(c) = d.default_input_config() {
-                    let name = d.name().unwrap_or_default();
-                    let devices_fallback = vec![(name, d, c)];
-                    if try_capture_device(&devices_fallback, &audio_src, &input_level, host_id) {
-                        started = true;
-                        break 'outer;
-                    }
-                }
-            }
-            continue;
-        }
-
-        if try_capture_device(&devices, &audio_src, &input_level, host_id) {
-            started = true;
-            break;
-        }
-    }
-
-    if !started {
-        eprintln!("[audio] No working capture device found on any host");
+    // Step 4: Start capture
+    if !start_capture(&device, &dev_config, &audio_source, &input_level, &dev_name) {
+        eprintln!("[audio] Failed to start capture on {}", dev_name);
     }
 
     Some(publication)
 }
 
-fn try_capture_device(
-    devices: &[(String, cpal::Device, cpal::SupportedStreamConfig)],
-    audio_src: &NativeAudioSource,
-    input_level: &Arc<Mutex<f32>>,
-    host_id: cpal::HostId,
-) -> bool {
-    for (name, device, config) in devices {
-        eprintln!("[audio] Trying capture on {} ({:?}) ...", name, host_id);
-
-        let sample_rate = config.sample_rate().0;
-        let channels = config.channels() as u32;
-        let src = audio_src.clone();
-        let level = input_level.clone();
-        let dev_name = name.clone();
-        let err_fn = move |err| eprintln!("[audio] {} capture error: {}", dev_name, err);
-
-        let stream_res = match config.sample_format() {
-            cpal::SampleFormat::F32 => {
-                let level = level.clone();
-                device.build_input_stream(
-                    &config.clone().into(),
-                    move |data: &[f32], _: &_| {
-                        let rms = compute_rms_level_f32(data);
-                        {
-                            let mut l = level.lock().unwrap();
-                            *l = rms;
-                        }
-                        let pcm16: Vec<i16> = data.iter().map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16).collect();
-                        let samples_per_channel = (pcm16.len() as u32) / channels;
-                        let _ = src.capture_frame(&AudioFrame {
-                            data: pcm16.into(),
-                            sample_rate,
-                            num_channels: channels,
-                            samples_per_channel,
-                        });
-                    },
-                    err_fn,
-                    None,
-                )
-            }
-            cpal::SampleFormat::I16 => {
-                let level = level.clone();
-                device.build_input_stream(
-                    &config.clone().into(),
-                    move |data: &[i16], _: &_| {
-                        let rms = compute_rms_level_i16(data);
-                        {
-                            let mut l = level.lock().unwrap();
-                            *l = rms;
-                        }
-                        let samples_per_channel = (data.len() as u32) / channels;
-                        let _ = src.capture_frame(&AudioFrame {
-                            data: data.to_vec().into(),
-                            sample_rate,
-                            num_channels: channels,
-                            samples_per_channel,
-                        });
-                    },
-                    err_fn,
-                    None,
-                )
-            }
-            cpal::SampleFormat::U16 => {
-                let level = level.clone();
-                device.build_input_stream(
-                    &config.clone().into(),
-                    move |data: &[u16], _: &_| {
-                        let pcm16: Vec<i16> = data.iter().map(|&s| (s as i32 - 32768).clamp(-32768, 32767) as i16).collect();
-                        let rms = compute_rms_level_i16(&pcm16);
-                        {
-                            let mut l = level.lock().unwrap();
-                            *l = rms;
-                        }
-                        let samples_per_channel = (pcm16.len() as u32) / channels;
-                        let _ = src.capture_frame(&AudioFrame {
-                            data: pcm16.into(),
-                            sample_rate,
-                            num_channels: channels,
-                            samples_per_channel,
-                        });
-                    },
-                    err_fn,
-                    None,
-                )
-            }
-            _ => continue,
+fn find_input_device() -> Option<(String, cpal::Device, cpal::SupportedStreamConfig)> {
+    // Priority: "default" → "pipewire" → any other device
+    for host_id in cpal::available_hosts() {
+        let host = match cpal::host_from_id(host_id) {
+            Ok(h) => h,
+            Err(_) => continue,
         };
 
-        match stream_res {
-            Ok(stream) => {
-                if let Err(e) = stream.play() {
-                    eprintln!("[audio] {} play error: {}", name, e);
-                    continue;
+        // Try named devices first (no full enumeration = no ALSA errors)
+        for preferred in &["default", "pipewire", "sysdefault"] {
+            if let Ok(devices) = host.input_devices() {
+                for d in devices {
+                    if let Ok(name) = d.name() {
+                        if name == *preferred {
+                            if let Ok(config) = d.default_input_config() {
+                                return Some((name, d, config));
+                            }
+                        }
+                    }
                 }
-                eprintln!("[audio] Capture started on {}", name);
-                std::mem::forget(stream);
-                return true;
-            }
-            Err(e) => {
-                eprintln!("[audio] {} build error: {}", name, e);
             }
         }
     }
-    false
+
+    // Fallback: enumerate all devices (triggers ALSA errors but may find something)
+    for host_id in cpal::available_hosts() {
+        let host = match cpal::host_from_id(host_id) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+        if let Ok(devices) = host.input_devices() {
+            for d in devices {
+                if let Ok(name) = d.name() {
+                    if let Ok(config) = d.default_input_config() {
+                        return Some((name, d, config));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn start_capture(
+    device: &cpal::Device,
+    config: &cpal::SupportedStreamConfig,
+    audio_source: &NativeAudioSource,
+    input_level: &Arc<Mutex<f32>>,
+    dev_name: &str,
+) -> bool {
+    let sample_rate = config.sample_rate().0;
+    let channels = config.channels() as u32;
+    let src = audio_source.clone();
+    let level = input_level.clone();
+    let name = dev_name.to_string();
+
+    let err_fn = move |err| eprintln!("[audio] {} capture error: {}", name, err);
+
+    let stream_res = match config.sample_format() {
+        cpal::SampleFormat::F32 => {
+            let level = level.clone();
+            device.build_input_stream(
+                &config.clone().into(),
+                move |data: &[f32], _: &_| {
+                    let rms = compute_rms_level_f32(data);
+                    { let mut l = level.lock().unwrap(); *l = rms; }
+                    let pcm16: Vec<i16> = data.iter().map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16).collect();
+                    let samples_per_channel = (pcm16.len() as u32) / channels;
+                    let _ = src.capture_frame(&AudioFrame { data: pcm16.into(), sample_rate, num_channels: channels, samples_per_channel });
+                },
+                err_fn, None,
+            )
+        }
+        cpal::SampleFormat::I16 => {
+            let level = level.clone();
+            device.build_input_stream(
+                &config.clone().into(),
+                move |data: &[i16], _: &_| {
+                    let rms = compute_rms_level_i16(data);
+                    { let mut l = level.lock().unwrap(); *l = rms; }
+                    let samples_per_channel = (data.len() as u32) / channels;
+                    let _ = src.capture_frame(&AudioFrame { data: data.to_vec().into(), sample_rate, num_channels: channels, samples_per_channel });
+                },
+                err_fn, None,
+            )
+        }
+        cpal::SampleFormat::U16 => {
+            let level = level.clone();
+            device.build_input_stream(
+                &config.clone().into(),
+                move |data: &[u16], _: &_| {
+                    let pcm16: Vec<i16> = data.iter().map(|&s| (s as i32 - 32768).clamp(-32768, 32767) as i16).collect();
+                    let rms = compute_rms_level_i16(&pcm16);
+                    { let mut l = level.lock().unwrap(); *l = rms; }
+                    let samples_per_channel = (pcm16.len() as u32) / channels;
+                    let _ = src.capture_frame(&AudioFrame { data: pcm16.into(), sample_rate, num_channels: channels, samples_per_channel });
+                },
+                err_fn, None,
+            )
+        }
+        _ => return false,
+    };
+
+    match stream_res {
+        Ok(stream) => {
+            if let Err(e) = stream.play() {
+                eprintln!("[audio] {} play error: {}", dev_name, e);
+                return false;
+            }
+            eprintln!("[audio] Capture started on {}", dev_name);
+            std::mem::forget(stream);
+            true
+        }
+        Err(e) => {
+            eprintln!("[audio] {} build error: {}", dev_name, e);
+            false
+        }
+    }
 }
 
 pub fn spawn_speaker_task(
@@ -281,126 +269,137 @@ pub fn spawn_speaker_task(
     let handle = tokio::runtime::Handle::current();
     std::thread::spawn(move || {
         handle.block_on(async move {
-            let level_ref = output_level.clone();
+            let (dev_name, device, dev_config) = match find_output_device() {
+                Some(d) => d,
+                None => {
+                    eprintln!("[audio] No working output device found");
+                    return;
+                }
+            };
 
-            for host_id in cpal::available_hosts() {
-                let host = match cpal::host_from_id(host_id) {
-                    Ok(h) => h,
-                    Err(_) => continue,
-                };
+            let sample_rate = dev_config.sample_rate().0;
+            let channels = dev_config.channels();
 
-                let devices: Vec<(String, cpal::Device, cpal::SupportedStreamConfig)> = match host.output_devices() {
-                    Ok(d) => d.filter_map(|d| {
-                        let name = d.name().ok();
-                        let config = d.default_output_config().ok();
-                        (name.is_some() && config.is_some()).then(|| (name.unwrap(), d, config.unwrap()))
-                    }).collect(),
-                    Err(_) => {
-                        // Fall back to default device
-                        if let Some(d) = host.default_output_device() {
-                            if let Ok(c) = d.default_output_config() {
-                                vec![(d.name().unwrap_or_default(), d, c)]
-                            } else {
-                                continue;
+            eprintln!("[audio] Using output device: {} ({}Hz {}ch {:?})", dev_name, sample_rate, channels, dev_config.sample_format());
+
+            let mut native_stream = NativeAudioStream::new(
+                audio_track.rtc_track(),
+                sample_rate as i32,
+                channels as i32,
+            );
+
+            let sample_buffer = Arc::new(Mutex::new(VecDeque::<f32>::new()));
+            let err_name = dev_name.clone();
+            let err_fn = move |err| eprintln!("[audio] {} output error: {}", err_name, err);
+
+            let stream_res = match dev_config.sample_format() {
+                cpal::SampleFormat::F32 => {
+                    let buf_clone = sample_buffer.clone();
+                    device.build_output_stream(
+                        &dev_config.clone().into(),
+                        move |data: &mut [f32], _: &_| {
+                            let mut buf = buf_clone.lock().unwrap();
+                            for sample in data.iter_mut() {
+                                *sample = buf.pop_front().unwrap_or(0.0);
                             }
-                        } else {
-                            continue;
+                        },
+                        err_fn, None,
+                    )
+                }
+                cpal::SampleFormat::I16 => {
+                    let buf_clone = sample_buffer.clone();
+                    device.build_output_stream(
+                        &dev_config.clone().into(),
+                        move |data: &mut [i16], _: &_| {
+                            let mut buf = buf_clone.lock().unwrap();
+                            for sample in data.iter_mut() {
+                                let float_sample = buf.pop_front().unwrap_or(0.0);
+                                *sample = (float_sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+                            }
+                        },
+                        err_fn, None,
+                    )
+                }
+                cpal::SampleFormat::U16 => {
+                    let buf_clone = sample_buffer.clone();
+                    device.build_output_stream(
+                        &dev_config.clone().into(),
+                        move |data: &mut [u16], _: &_| {
+                            let mut buf = buf_clone.lock().unwrap();
+                            for sample in data.iter_mut() {
+                                let float_sample = buf.pop_front().unwrap_or(0.0);
+                                *sample = ((float_sample.clamp(-1.0, 1.0) + 1.0) * 32767.5) as u16;
+                            }
+                        },
+                        err_fn, None,
+                    )
+                }
+                _ => {
+                    eprintln!("[audio] Unsupported output format on {}", dev_name);
+                    return;
+                }
+            };
+
+            match stream_res {
+                Ok(stream) => {
+                    if let Err(e) = stream.play() {
+                        eprintln!("[audio] {} play error: {}", dev_name, e);
+                        return;
+                    }
+                    eprintln!("[audio] Playback started on {}", dev_name);
+                    while let Some(frame) = native_stream.next().await {
+                        let rms = compute_rms_level_i16(&frame.data);
+                        { let mut l = output_level.lock().unwrap(); *l = rms; }
+                        let mut buf = sample_buffer.lock().unwrap();
+                        for &s in frame.data.iter() {
+                            buf.push_back((s as f32) / 32768.0);
                         }
                     }
-                };
+                }
+                Err(e) => {
+                    eprintln!("[audio] {} build error: {}", dev_name, e);
+                }
+            }
+        });
+    });
+}
 
-                for (name, device, config) in &devices {
-                    eprintln!("[audio] Trying playback on {} ({:?}) ...", name, host_id);
+fn find_output_device() -> Option<(String, cpal::Device, cpal::SupportedStreamConfig)> {
+    for host_id in cpal::available_hosts() {
+        let host = match cpal::host_from_id(host_id) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
 
-                    let sample_rate = config.sample_rate().0;
-                    let channels = config.channels();
-
-                    let mut native_stream = NativeAudioStream::new(
-                        audio_track.rtc_track(),
-                        sample_rate as i32,
-                        channels as i32,
-                    );
-
-                    let sample_buffer = Arc::new(Mutex::new(VecDeque::<f32>::new()));
-                    let dev_name = name.clone();
-                    let err_fn = move |err| eprintln!("[audio] {} output error: {}", dev_name, err);
-
-                    let stream_res = match config.sample_format() {
-                        cpal::SampleFormat::F32 => {
-                            let buf_clone = sample_buffer.clone();
-                            device.build_output_stream(
-                                &config.clone().into(),
-                                move |data: &mut [f32], _: &_| {
-                                    let mut buf = buf_clone.lock().unwrap();
-                                    for sample in data.iter_mut() {
-                                        *sample = buf.pop_front().unwrap_or(0.0);
-                                    }
-                                },
-                                err_fn,
-                                None,
-                            )
-                        }
-                        cpal::SampleFormat::I16 => {
-                            let buf_clone = sample_buffer.clone();
-                            device.build_output_stream(
-                                &config.clone().into(),
-                                move |data: &mut [i16], _: &_| {
-                                    let mut buf = buf_clone.lock().unwrap();
-                                    for sample in data.iter_mut() {
-                                        let float_sample = buf.pop_front().unwrap_or(0.0);
-                                        *sample = (float_sample.clamp(-1.0, 1.0) * 32767.0) as i16;
-                                    }
-                                },
-                                err_fn,
-                                None,
-                            )
-                        }
-                        cpal::SampleFormat::U16 => {
-                            let buf_clone = sample_buffer.clone();
-                            device.build_output_stream(
-                                &config.clone().into(),
-                                move |data: &mut [u16], _: &_| {
-                                    let mut buf = buf_clone.lock().unwrap();
-                                    for sample in data.iter_mut() {
-                                        let float_sample = buf.pop_front().unwrap_or(0.0);
-                                        *sample = ((float_sample.clamp(-1.0, 1.0) + 1.0) * 32767.5) as u16;
-                                    }
-                                },
-                                err_fn,
-                                None,
-                            )
-                        }
-                        _ => continue,
-                    };
-
-                    match stream_res {
-                        Ok(stream) => {
-                            if let Err(e) = stream.play() {
-                                eprintln!("[audio] {} play error: {}, trying next device", name, e);
-                                continue;
+        for preferred in &["default", "pipewire", "sysdefault"] {
+            if let Ok(devices) = host.output_devices() {
+                for d in devices {
+                    if let Ok(name) = d.name() {
+                        if name == *preferred {
+                            if let Ok(config) = d.default_output_config() {
+                                return Some((name, d, config));
                             }
-                            eprintln!("[audio] Playback started on {}", name);
-                            while let Some(frame) = native_stream.next().await {
-                                let rms = compute_rms_level_i16(&frame.data);
-                                {
-                                    let mut l = level_ref.lock().unwrap();
-                                    *l = rms;
-                                }
-                                let mut buf = sample_buffer.lock().unwrap();
-                                for &s in frame.data.iter() {
-                                    buf.push_back((s as f32) / 32768.0);
-                                }
-                            }
-                            return;
-                        }
-                        Err(e) => {
-                            eprintln!("[audio] {} build error: {}, trying next device", name, e);
                         }
                     }
                 }
             }
+        }
+    }
 
-            eprintln!("[audio] No working output device found on any host");
-        });
-    });
+    for host_id in cpal::available_hosts() {
+        let host = match cpal::host_from_id(host_id) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+        if let Ok(devices) = host.output_devices() {
+            for d in devices {
+                if let Ok(name) = d.name() {
+                    if let Ok(config) = d.default_output_config() {
+                        return Some((name, d, config));
+                    }
+                }
+            }
+        }
+    }
+    None
 }
