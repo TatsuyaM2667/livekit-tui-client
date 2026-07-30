@@ -99,6 +99,8 @@ async fn main() -> Result<()> {
     let mut state = AppState::new();
     let mut audio_pub: Option<LocalTrackPublication> = None;
 
+    audio::diagnose_audio();
+
     // Channel for signaling messages received from Data Channel
     let (tx_sig, mut rx_sig) = mpsc::unbounded_channel::<SignalingMessage>();
 
@@ -247,8 +249,8 @@ async fn main() -> Result<()> {
                                 Ok((call_room, rx_call)) => {
                                     state.screen = AppScreen::InCall;
                                     audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
-                                    video::setup_camera(&call_room).await;
-                                    events::handle_room_events(rx_call, state.remote_video_frame.clone(), state.audio_output_level.clone());
+                                    video::setup_camera(&call_room, state.local_video_frame.clone()).await;
+                                    events::handle_room_events(rx_call, state.remote_video_frames.clone(), state.audio_output_level.clone());
                                     state.livekit_room = Some(call_room);
                                 }
                                 Err(e) => {
@@ -328,6 +330,10 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                 }
+                                KeyCode::Char('j') => {
+                                    state.input_buffer.clear();
+                                    state.screen = AppScreen::JoinRoom;
+                                }
                                 KeyCode::Char('s') => {
                                     state.active_input_index = 0;
                                     state.screen = AppScreen::Settings;
@@ -358,8 +364,8 @@ async fn main() -> Result<()> {
                                                     }
                                                     state.screen = AppScreen::InCall;
                                                     audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
-                                                    video::setup_camera(&call_room).await;
-                                                    events::handle_room_events(rx_call, state.remote_video_frame.clone(), state.audio_output_level.clone());
+                                                    video::setup_camera(&call_room, state.local_video_frame.clone()).await;
+                                                    events::handle_room_events(rx_call, state.remote_video_frames.clone(), state.audio_output_level.clone());
                                                     state.livekit_room = Some(call_room);
                                                 }
                                                 Err(e) => {
@@ -418,6 +424,44 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         },
+                        AppScreen::JoinRoom => {
+                            match key.code {
+                                KeyCode::Enter => {
+                                    let room_name = state.input_buffer.trim().to_string();
+                                    if !room_name.is_empty() {
+                                        match create_token(&state.api_key, &state.api_secret, &state.username, &room_name) {
+                                            Ok(token) => {
+                                                match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
+                                                    Ok((call_room, rx_call)) => {
+                                                        state.screen = AppScreen::InCall;
+                                                        audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
+                                                        video::setup_camera(&call_room, state.local_video_frame.clone()).await;
+                                                        events::handle_room_events(rx_call, state.remote_video_frames.clone(), state.audio_output_level.clone());
+                                                        state.livekit_room = Some(call_room);
+                                                    }
+                                                    Err(e) => {
+                                                        state.screen = AppScreen::Error(format!("Failed to join room: {}", e));
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                state.screen = AppScreen::Error(format!("Token error: {}", e));
+                                            }
+                                        }
+                                    }
+                                }
+                                KeyCode::Esc => {
+                                    state.screen = AppScreen::ContactList;
+                                }
+                                KeyCode::Char(c) => {
+                                    state.input_buffer.push(c);
+                                }
+                                KeyCode::Backspace => {
+                                    state.input_buffer.pop();
+                                }
+                                _ => {}
+                            }
+                        }
                         AppScreen::Settings => {
                             match key.code {
                                 KeyCode::Tab | KeyCode::Down => {
@@ -493,6 +537,7 @@ async fn main() -> Result<()> {
                 _ => {}
             }
         }
+        tokio::time::sleep(Duration::from_millis(16)).await;
     }
 
     // Cleanup

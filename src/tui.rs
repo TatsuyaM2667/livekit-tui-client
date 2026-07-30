@@ -24,6 +24,7 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
         AppScreen::ContactList => format!(" Welcome, {}! | Contacts ", state.username),
         AppScreen::Settings => format!(" Settings | {} ", state.username),
         AppScreen::Ringing { .. } | AppScreen::Calling { .. } => " Calling... ".to_string(),
+        AppScreen::JoinRoom => " Join Room ".to_string(),
         AppScreen::InCall => {
             let mic_status = if state.is_muted { "OFF (Muted)" } else { "ON (Active)" };
             format!(" In Call | Mic: {} ", mic_status)
@@ -151,6 +152,24 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
                 .block(Block::default().borders(Borders::ALL).padding(ratatui::widgets::Padding::new(4, 4, 2, 2)));
             frame.render_widget(widget, main_chunks[1]);
         }
+        AppScreen::JoinRoom => {
+            let mut lines = vec![
+                Line::from(Span::styled("Join a room to start a group call", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                Line::from(""),
+                Line::from("Enter a room name. Anyone in the same room can see and hear each other."),
+                Line::from(""),
+            ];
+            let cursor = "\u{2588}";
+            let display = if state.input_buffer.is_empty() { "Type room name...".to_string() } else { state.input_buffer.clone() };
+            lines.push(Line::from(Span::styled(
+                format!("Room: {}{}", display, cursor),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            )));
+            let widget = Paragraph::new(lines)
+                .alignment(Alignment::Left)
+                .block(Block::default().borders(Borders::ALL).padding(ratatui::widgets::Padding::new(4, 4, 2, 2)));
+            frame.render_widget(widget, main_chunks[1]);
+        }
         AppScreen::Calling { target } => {
             let info = format!("Ringing {}...\n\nWaiting for answer...", target);
             let widget = Paragraph::new(info)
@@ -225,94 +244,78 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
                 .block(Block::default().title(" Audio Level ").borders(Borders::ALL));
             frame.render_widget(meter_widget, left_chunks[1]);
 
-            let latest_video = {
-                let lock = state.remote_video_frame.lock().unwrap();
+            let local_video = {
+                let lock = state.local_video_frame.lock().unwrap();
+                lock.clone()
+            };
+            let remote_frames = {
+                let lock = state.remote_video_frames.lock().unwrap();
                 lock.clone()
             };
 
             let video_area = body_chunks[1].inner(Margin { vertical: 1, horizontal: 1 });
-            let target_width = video_area.width as u32;
-            let target_height = video_area.height as u32;
 
-            if let Some((rgb, w, h)) = latest_video {
-                if target_width > 0 && target_height > 0 {
-                    let mut lines = Vec::new();
+            // Collect all participants with video
+            let mut video_parts: Vec<(String, Vec<u8>, u32, u32)> = remote_frames.into_iter().map(|(k, (rgb, w, h))| (k, rgb, w, h)).collect();
+            // Sort by identity for stable ordering
+            video_parts.sort_by(|a, b| a.0.cmp(&b.0));
 
-                    match state.render_mode {
-                        crate::app_state::RenderMode::Braille => {
-                            let cells = render_braille(&rgb, w, h, target_width, target_height).unwrap_or_default();
-                            for cy in 0..target_height {
-                                let mut spans = Vec::new();
-                                for cx in 0..target_width {
-                                    let idx = ((cy * target_width + cx) * 8) as usize;
-                                    if idx + 7 < cells.len() {
-                                        let code_point = u32::from_le_bytes([
-                                            cells[idx],
-                                            cells[idx + 1],
-                                            cells[idx + 2],
-                                            cells[idx + 3],
-                                        ]);
-                                        let ch = char::from_u32(code_point).unwrap_or(' ');
-                                        let r = cells[idx + 4];
-                                        let g = cells[idx + 5];
-                                        let b = cells[idx + 6];
-
-                                        let s = if ch == '\0' || ch == ' ' {
-                                            " ".to_string()
-                                        } else {
-                                            ch.to_string()
-                                        };
-
-                                        spans.push(Span::styled(
-                                            s,
-                                            Style::default().fg(Color::Rgb(r, g, b)),
-                                        ));
-                                    }
-                                }
-                                lines.push(Line::from(spans));
-                            }
-                        }
-                        crate::app_state::RenderMode::HalfBlock => {
-                            let cells = render_half_block(&rgb, w, h, target_width, target_height).unwrap_or_default();
-                            for cy in 0..target_height {
-                                let mut spans = Vec::new();
-                                for cx in 0..target_width {
-                                    let idx = ((cy * target_width + cx) * 6) as usize;
-                                    if idx + 5 < cells.len() {
-                                        let r_fg = cells[idx];
-                                        let g_fg = cells[idx + 1];
-                                        let b_fg = cells[idx + 2];
-                                        let r_bg = cells[idx + 3];
-                                        let g_bg = cells[idx + 4];
-                                        let b_bg = cells[idx + 5];
-
-                                        spans.push(Span::styled(
-                                            "\u{2580}",
-                                            Style::default()
-                                                .fg(Color::Rgb(r_fg, g_fg, b_fg))
-                                                .bg(Color::Rgb(r_bg, g_bg, b_bg)),
-                                        ));
-                                    }
-                                }
-                                lines.push(Line::from(spans));
-                            }
-                        }
+            if video_parts.is_empty() {
+                // No remote — show self-view full size
+                if let Some((lrgb, lw, lh)) = local_video {
+                    let tw = video_area.width as u32;
+                    let th = video_area.height as u32;
+                    if tw > 0 && th > 0 {
+                        let lines = render_video_lines(&lrgb, lw, lh, tw, th, state.render_mode);
+                        let w = Paragraph::new(lines)
+                            .block(Block::default().title(" You (self view) ").borders(Borders::ALL).style(Style::default().fg(Color::Cyan)));
+                        frame.render_widget(w, body_chunks[1]);
                     }
-
-                    let mode_str = match state.render_mode {
-                        crate::app_state::RenderMode::Braille => "Odin (Braille)",
-                        crate::app_state::RenderMode::HalfBlock => "Zig (HalfBlock)",
-                    };
-
-                    let video_widget = Paragraph::new(lines)
-                        .block(Block::default().title(format!(" Video Stream [{}] ", mode_str)).borders(Borders::ALL));
-                    frame.render_widget(video_widget, body_chunks[1]);
+                } else {
+                    let w = Paragraph::new("Waiting for remote video...")
+                        .alignment(Alignment::Center)
+                        .block(Block::default().title(" Video Stream ").borders(Borders::ALL));
+                    frame.render_widget(w, body_chunks[1]);
                 }
             } else {
-                let info_widget = Paragraph::new("Waiting for remote video...")
-                    .alignment(Alignment::Center)
-                    .block(Block::default().title(" Video Stream ").borders(Borders::ALL));
-                frame.render_widget(info_widget, body_chunks[1]);
+                let n = video_parts.len();
+                let (cols, rows) = grid_dims(n);
+                let tile_w = (video_area.width as u32 / cols).max(4);
+                let tile_h = (video_area.height as u32 / rows).max(2);
+
+                // Render remote tiles in grid
+                for (i, (identity, rgb, w, h)) in video_parts.iter().enumerate() {
+                    let col = i as u32 % cols;
+                    let row = i as u32 / cols;
+                    let x = video_area.x + (col * tile_w) as u16;
+                    let y = video_area.y + (row * tile_h) as u16;
+                    let tile_rect = ratatui::layout::Rect::new(x, y, tile_w as u16, tile_h as u16);
+
+                    // Ensure tile doesn't overflow
+                    if tile_rect.right() > video_area.right() || tile_rect.bottom() > video_area.bottom() {
+                        continue;
+                    }
+
+                    let lines = render_video_lines(rgb, *w, *h, tile_w, tile_h, state.render_mode);
+                    let w = Paragraph::new(lines)
+                        .block(Block::default().title(format!(" {} ", identity)).borders(Borders::ALL).style(Style::default().fg(Color::Green)));
+                    frame.render_widget(w, tile_rect);
+                }
+
+                // Self-view PiP in top-right corner
+                if let Some((lrgb, lw, lh)) = local_video {
+                    let pip_w = (tile_w / 2).max(4);
+                    let pip_h = (tile_h / 2).max(2);
+                    let pip_lines = render_video_lines(&lrgb, lw, lh, pip_w, pip_h, state.render_mode);
+                    let pip_x = video_area.right() - pip_w as u16 - 1;
+                    let pip_y = video_area.y + 1;
+                    let pip_area = ratatui::layout::Rect::new(pip_x, pip_y, pip_w as u16, pip_h as u16);
+                    if pip_area.right() <= video_area.right() && pip_area.bottom() <= video_area.bottom() {
+                        let pip_widget = Paragraph::new(pip_lines)
+                            .block(Block::default().title(" You ").borders(Borders::ALL).style(Style::default().fg(Color::Cyan)));
+                        frame.render_widget(pip_widget, pip_area);
+                    }
+                }
             }
         }
         AppScreen::Error(msg) => {
@@ -327,8 +330,9 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
 
     let footer_text = match state.screen {
         AppScreen::Login    => " [Tab] Next Field | [Enter] Connect | [Esc] Quit ",
-        AppScreen::ContactList => " [Up/Down] Navigate | [Enter] Call | [s] Settings | [q] Quit ",
+        AppScreen::ContactList => " [Up/Down] Navigate | [Enter] Call | [j] Join Room | [s] Settings | [q] Quit ",
         AppScreen::Settings => " [Tab] Next Field | [Enter] Save & Back | [Esc] Cancel ",
+        AppScreen::JoinRoom => " [Enter] Join Room | [Esc] Back ",
         AppScreen::Ringing { .. } => " [y] Accept | [n] Reject | [q] Quit ",
         AppScreen::Calling { .. } => " [q] Quit ",
         AppScreen::InCall   => " [m] Toggle Mic | [r] Toggle Renderer | [q] End Call ",
@@ -339,6 +343,64 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
         .style(Style::default().fg(Color::DarkGray))
         .block(Block::default().borders(Borders::ALL));
     frame.render_widget(footer, main_chunks[2]);
+}
+
+fn grid_dims(n: usize) -> (u32, u32) {
+    if n == 0 { return (1, 1); }
+    if n <= 1 { return (1, 1); }
+    if n <= 2 { return (2, 1); }
+    if n <= 4 { return (2, 2); }
+    if n <= 6 { return (3, 2); }
+    if n <= 9 { return (3, 3); }
+    let cols = (n as f64).sqrt().ceil() as u32;
+    let rows = ((n as f64) / cols as f64).ceil() as u32;
+    (cols, rows)
+}
+
+fn render_video_lines(rgb: &[u8], w: u32, h: u32, target_w: u32, target_h: u32, mode: crate::app_state::RenderMode) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    match mode {
+        crate::app_state::RenderMode::Braille => {
+            let cells = render_braille(rgb, w, h, target_w, target_h).unwrap_or_default();
+            for cy in 0..target_h {
+                let mut spans = Vec::new();
+                for cx in 0..target_w {
+                    let idx = ((cy * target_w + cx) * 8) as usize;
+                    if idx + 7 < cells.len() {
+                        let code_point = u32::from_le_bytes([
+                            cells[idx], cells[idx + 1], cells[idx + 2], cells[idx + 3],
+                        ]);
+                        let ch = char::from_u32(code_point).unwrap_or(' ');
+                        let r = cells[idx + 4];
+                        let g = cells[idx + 5];
+                        let b = cells[idx + 6];
+                        let s = if ch == '\0' || ch == ' ' { " ".to_string() } else { ch.to_string() };
+                        spans.push(Span::styled(s, Style::default().fg(Color::Rgb(r, g, b))));
+                    }
+                }
+                lines.push(Line::from(spans));
+            }
+        }
+        crate::app_state::RenderMode::HalfBlock => {
+            let cells = render_half_block(rgb, w, h, target_w, target_h).unwrap_or_default();
+            for cy in 0..target_h {
+                let mut spans = Vec::new();
+                for cx in 0..target_w {
+                    let idx = ((cy * target_w + cx) * 6) as usize;
+                    if idx + 5 < cells.len() {
+                        spans.push(Span::styled(
+                            "\u{2580}",
+                            Style::default()
+                                .fg(Color::Rgb(cells[idx], cells[idx + 1], cells[idx + 2]))
+                                .bg(Color::Rgb(cells[idx + 3], cells[idx + 4], cells[idx + 5])),
+                        ));
+                    }
+                }
+                lines.push(Line::from(spans));
+            }
+        }
+    }
+    lines
 }
 
 fn render_vu_bar(level: f32, width: usize) -> String {

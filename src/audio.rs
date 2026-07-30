@@ -8,6 +8,40 @@ use livekit::webrtc::prelude::*;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+pub fn diagnose_audio() {
+    eprintln!("[audio] === Audio system diagnosis ===");
+    for &host_id in cpal::available_hosts().iter() {
+        let host = match cpal::host_from_id(host_id) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+        eprintln!("[audio] Host: {:?}", host_id);
+
+        if let Some(device) = host.default_input_device() {
+            let name = device.name().unwrap_or_default();
+            if let Ok(cfg) = device.default_input_config() {
+                eprintln!("[audio]   Default INPUT: {} ({:?} {}Hz {}ch)", name, cfg.sample_format(), cfg.sample_rate().0, cfg.channels());
+            } else {
+                eprintln!("[audio]   Default INPUT: {} (no default config)", name);
+            }
+        } else {
+            eprintln!("[audio]   No default INPUT device");
+        }
+
+        if let Some(device) = host.default_output_device() {
+            let name = device.name().unwrap_or_default();
+            if let Ok(cfg) = device.default_output_config() {
+                eprintln!("[audio]   Default OUTPUT: {} ({:?} {}Hz {}ch)", name, cfg.sample_format(), cfg.sample_rate().0, cfg.channels());
+            } else {
+                eprintln!("[audio]   Default OUTPUT: {} (no default config)", name);
+            }
+        } else {
+            eprintln!("[audio]   No default OUTPUT device");
+        }
+    }
+    eprintln!("[audio] === End diagnosis ===");
+}
+
 fn compute_rms_level_i16(data: &[i16]) -> f32 {
     if data.is_empty() {
         return 0.0;

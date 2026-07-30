@@ -1,4 +1,5 @@
 use livekit::prelude::Room;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -8,11 +9,12 @@ pub enum AppScreen {
     Settings,
     Ringing { caller: String },
     Calling { target: String },
+    JoinRoom,
     InCall,
     Error(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RenderMode {
     Braille,   // Odin (pixel animation)
     HalfBlock, // Zig (mosaic)
@@ -33,7 +35,8 @@ pub struct AppState {
     pub livekit_lobby: Option<Room>,   // Persistent lobby room for presence & signaling
     pub livekit_room: Option<Room>,    // Active call room
     pub is_muted: bool,
-    pub remote_video_frame: Arc<Mutex<Option<(Vec<u8>, u32, u32)>>>,
+    pub remote_video_frames: Arc<Mutex<HashMap<String, (Vec<u8>, u32, u32)>>>,
+    pub local_video_frame: Arc<Mutex<Option<(Vec<u8>, u32, u32)>>>,
     pub render_mode: RenderMode,
     pub audio_input_level: Arc<Mutex<f32>>,
     pub audio_output_level: Arc<Mutex<f32>>,
@@ -55,7 +58,8 @@ impl AppState {
             livekit_lobby: None,
             livekit_room: None,
             is_muted: false,
-            remote_video_frame: Arc::new(Mutex::new(None)),
+            remote_video_frames: Arc::new(Mutex::new(HashMap::new())),
+            local_video_frame: Arc::new(Mutex::new(None)),
             audio_input_level: Arc::new(Mutex::new(0.0)),
             audio_output_level: Arc::new(Mutex::new(0.0)),
             render_mode: match cfg.render_mode.as_deref() {

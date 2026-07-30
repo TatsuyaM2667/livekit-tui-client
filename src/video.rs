@@ -8,14 +8,18 @@ use livekit::webrtc::video_stream::native::NativeVideoStream;
 use nokhwa::pixel_format::RgbAFormat;
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 use nokhwa::Camera;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub async fn setup_camera(room: &Room) {
+pub async fn setup_camera(
+    room: &Room,
+    local_frame: Arc<Mutex<Option<(Vec<u8>, u32, u32)>>>,
+) {
     let video_source = NativeVideoSource::new(
         VideoResolution {
-            width: 640,
-            height: 480,
+            width: 320,
+            height: 240,
         },
         false,
     );
@@ -44,6 +48,14 @@ pub async fn setup_camera(room: &Room) {
                     if let Ok(buffer) = frame.decode_image::<RgbAFormat>() {
                         let (w, h) = (buffer.width(), buffer.height());
                         let rgba_raw = buffer.into_raw();
+
+                        // Store local preview for self-view
+                        {
+                            let rgb: Vec<u8> = rgba_raw.chunks(4).flat_map(|c| c[..3].iter().copied()).collect();
+                            let mut lf = local_frame.lock().unwrap();
+                            *lf = Some((rgb, w, h));
+                        }
+
                         let i420 = rgba_to_i420(&rgba_raw, w, h);
 
                         let video_frame = VideoFrame {
@@ -54,7 +66,7 @@ pub async fn setup_camera(room: &Room) {
                         };
                         video_source.capture_frame(&video_frame);
                     }
-                    std::thread::sleep(Duration::from_millis(33));
+                    std::thread::sleep(Duration::from_millis(100));
                 }
             }
         }
@@ -63,7 +75,8 @@ pub async fn setup_camera(room: &Room) {
 
 pub fn spawn_video_listener_task(
     video_track: RemoteVideoTrack,
-    video_frame_clone: Arc<Mutex<Option<(Vec<u8>, u32, u32)>>>,
+    participant_identity: String,
+    video_frames: Arc<Mutex<HashMap<String, (Vec<u8>, u32, u32)>>>,
 ) {
     tokio::spawn(async move {
         let mut native_stream = NativeVideoStream::new(video_track.rtc_track());
@@ -74,8 +87,8 @@ pub fn spawn_video_listener_task(
             let height = i420.height();
             let rgb = i420_to_rgb(&i420, width, height);
 
-            let mut lock = video_frame_clone.lock().unwrap();
-            *lock = Some((rgb, width, height));
+            let mut lock = video_frames.lock().unwrap();
+            lock.insert(participant_identity.clone(), (rgb, width, height));
         }
     });
 }
