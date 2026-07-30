@@ -20,14 +20,14 @@ echo "[*] Detected OS: $OS"
 # 1. Install System Dependencies
 echo "[*] Installing system dependencies..."
 if [[ "$OS" == "arch" || "$OS_LIKE" == *"arch"* ]]; then
-    sudo pacman -Sy --needed --noconfirm base-devel alsa-lib git curl wget unzip zig odin pkgconf glib2
+    sudo pacman -Sy --needed --noconfirm base-devel alsa-lib git curl wget unzip zig odin pkgconf glib2 pulseaudio
 elif [[ "$OS" == "ubuntu" || "$OS" == "debian" || "$OS_LIKE" == *"debian"* ]]; then
     sudo apt-get update
-    sudo apt-get install -y build-essential libasound2-dev git curl wget unzip pkg-config libglib2.0-dev
+    sudo apt-get install -y build-essential libasound2-dev libpulse-dev git curl wget unzip pkg-config libglib2.0-dev
 elif [[ "$OS" == "fedora" || "$OS" == "almalinux" || "$OS" == "rocky" || "$OS_LIKE" == *"rhel"* ]]; then
-    sudo dnf install -y alsa-lib-devel gcc git curl wget unzip pkgconf-pkg-config glib2-devel
+    sudo dnf install -y alsa-lib-devel pulseaudio-libs-devel gcc git curl wget unzip pkgconf-pkg-config glib2-devel
 elif [[ "$OS" == "opensuse"* || "$OS_LIKE" == *"suse"* ]]; then
-    sudo zypper install -y alsa-devel gcc git curl wget unzip pkg-config glib2-devel
+    sudo zypper install -y alsa-devel gcc git curl wget unzip pkg-config glib2-devel zig libpulse-devel
 else
     echo "[!] Unsupported package manager. Please install alsa-lib-devel manually."
 fi
@@ -56,9 +56,15 @@ fi
 
 if ! command -v odin &> /dev/null; then
     echo "[*] Odin not found. Downloading static binary..."
-    # Downloading a recent nightly/dev build of Odin for Linux
-    ODIN_URL="https://github.com/odin-lang/Odin/releases/download/dev-2024-05/odin-ubuntu-amd64-dev-2024-05.zip"
-    wget -qO /tmp/odin.zip "$ODIN_URL"
+    # Fetch latest Odin release tag from GitHub API
+    ODIN_TAG=$(curl -sSfL "https://api.github.com/repos/odin-lang/Odin/releases/latest" | grep '"tag_name"' | cut -d'"' -f4 2>/dev/null || echo "dev-2025-04")
+    ODIN_URL="https://github.com/odin-lang/Odin/releases/download/${ODIN_TAG}/odin-ubuntu-amd64-${ODIN_TAG}.zip"
+    echo "[*] Downloading Odin from ${ODIN_URL} ..."
+    if ! wget -qO /tmp/odin.zip "$ODIN_URL"; then
+        # Fallback: try an older known-good version
+        echo "[*] Latest not found, trying dev-2025-04..."
+        wget -qO /tmp/odin.zip "https://github.com/odin-lang/Odin/releases/download/dev-2025-04/odin-ubuntu-amd64-dev-2025-04.zip"
+    fi
     unzip -q /tmp/odin.zip -d /tmp/odin_extracted
     cp -r /tmp/odin_extracted/* "$INSTALL_DIR/"
     rm -rf /tmp/odin.zip /tmp/odin_extracted
