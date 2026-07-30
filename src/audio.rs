@@ -28,17 +28,6 @@ pub fn diagnose_audio() {
             eprintln!("[audio]   No default INPUT device");
         }
 
-        if let Ok(devices) = host.input_devices() {
-            for d in devices {
-                let name = d.name().unwrap_or_default();
-                if let Ok(cfg) = d.default_input_config() {
-                    eprintln!("[audio]     Input: {} ({:?} {}Hz {}ch)", name, cfg.sample_format(), cfg.sample_rate().0, cfg.channels());
-                } else {
-                    eprintln!("[audio]     Input: {} (no default config)", name);
-                }
-            }
-        }
-
         if let Some(device) = host.default_output_device() {
             let name = device.name().unwrap_or_default();
             if let Ok(cfg) = device.default_output_config() {
@@ -48,17 +37,6 @@ pub fn diagnose_audio() {
             }
         } else {
             eprintln!("[audio]   No default OUTPUT device");
-        }
-
-        if let Ok(devices) = host.output_devices() {
-            for d in devices {
-                let name = d.name().unwrap_or_default();
-                if let Ok(cfg) = d.default_output_config() {
-                    eprintln!("[audio]     Output: {} ({:?} {}Hz {}ch)", name, cfg.sample_format(), cfg.sample_rate().0, cfg.channels());
-                } else {
-                    eprintln!("[audio]     Output: {} (no default config)", name);
-                }
-            }
         }
     }
     eprintln!("[audio] === End diagnosis ===");
