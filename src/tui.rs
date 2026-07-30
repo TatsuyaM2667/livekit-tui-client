@@ -761,7 +761,7 @@ fn render_room_browser(frame: &mut Frame, state: &AppState, area: Rect) {
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "  [j] ルームを作成して公開",
+                "  [j] グループ通話ルームを作成して公開",
                 Style::default().fg(Color::Green),
             )),
             Line::from(""),
