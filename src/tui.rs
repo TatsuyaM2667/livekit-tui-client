@@ -10,6 +10,7 @@ use terminal_pixel_animation::{render_braille, render_half_block};
 
 pub fn render_ui(frame: &mut Frame, state: &AppState) {
     let size = frame.area();
+    frame.render_widget(Clear, size);
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
