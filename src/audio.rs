@@ -6,6 +6,11 @@ use livekit::webrtc::audio_source::native::NativeAudioSource;
 use livekit::webrtc::audio_stream::native::NativeAudioStream;
 use livekit::webrtc::prelude::*;
 use std::collections::VecDeque;
+
+// ターミナルUI(ratatui)のレイアウト崩れを防ぐため、audio.rs内の eprintln! を無効化するマクロ
+macro_rules! eprintln {
+    ($($arg:tt)*) => { () };
+}
 use std::sync::{Arc, Mutex};
 
 pub fn diagnose_audio() {
