@@ -1,9 +1,9 @@
 use crate::app_state::{AppScreen, AppState};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Margin, Alignment},
+    layout::{Constraint, Direction, Layout, Margin, Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 use terminal_pixel_animation::{render_braille, render_half_block};
@@ -244,6 +244,10 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
                 .block(Block::default().title(" Audio Level ").borders(Borders::ALL));
             frame.render_widget(meter_widget, left_chunks[1]);
 
+            // Clear video area to prevent ghosting
+            let video_area = body_chunks[1].inner(Margin { vertical: 1, horizontal: 1 });
+            frame.render_widget(Clear, body_chunks[1]);
+
             let local_video = {
                 let lock = state.local_video_frame.lock().unwrap();
                 lock.clone()
@@ -253,67 +257,79 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
                 lock.clone()
             };
 
-            let video_area = body_chunks[1].inner(Margin { vertical: 1, horizontal: 1 });
-
-            // Collect all participants with video
             let mut video_parts: Vec<(String, Vec<u8>, u32, u32)> = remote_frames.into_iter().map(|(k, (rgb, w, h))| (k, rgb, w, h)).collect();
-            // Sort by identity for stable ordering
             video_parts.sort_by(|a, b| a.0.cmp(&b.0));
 
             if video_parts.is_empty() {
-                // No remote — show self-view full size
+                // No remote — show self-view as a reasonable thumbnail (not fullscreen)
                 if let Some((lrgb, lw, lh)) = local_video {
-                    let tw = video_area.width as u32;
-                    let th = video_area.height as u32;
-                    if tw > 0 && th > 0 {
-                        let lines = render_video_lines(&lrgb, lw, lh, tw, th, state.render_mode);
-                        let w = Paragraph::new(lines)
-                            .block(Block::default().title(" You (self view) ").borders(Borders::ALL).style(Style::default().fg(Color::Cyan)));
-                        frame.render_widget(w, body_chunks[1]);
-                    }
+                    let tw = (video_area.width / 3).max(8) as u32;
+                    let th = (video_area.height / 2).max(4) as u32;
+                    let cx = video_area.x + video_area.width / 2 - tw as u16 / 2;
+                    let cy = video_area.y + video_area.height / 2 - th as u16 / 2;
+                    let rect = Rect::new(cx, cy, tw as u16, th as u16);
+                    let inner_w = (tw as u16).saturating_sub(2);
+                    let inner_h = (th as u16).saturating_sub(2);
+                    let lines = render_video_lines(&lrgb, lw, lh, inner_w as u32, inner_h as u32, state.render_mode);
+                    frame.render_widget(Clear, rect);
+                    frame.render_widget(
+                        Paragraph::new(lines).block(Block::default().title(" You ").borders(Borders::ALL).style(Style::default().fg(Color::Cyan))),
+                        rect,
+                    );
                 } else {
-                    let w = Paragraph::new("Waiting for remote video...")
-                        .alignment(Alignment::Center)
-                        .block(Block::default().title(" Video Stream ").borders(Borders::ALL));
-                    frame.render_widget(w, body_chunks[1]);
+                    frame.render_widget(
+                        Paragraph::new("Waiting for remote video...")
+                            .alignment(Alignment::Center)
+                            .block(Block::default().title(" Video Stream ").borders(Borders::ALL)),
+                        body_chunks[1],
+                    );
                 }
             } else {
                 let n = video_parts.len();
                 let (cols, rows) = grid_dims(n);
-                let tile_w = (video_area.width as u32 / cols).max(4);
-                let tile_h = (video_area.height as u32 / rows).max(2);
+                let tile_w = (video_area.width as u32 / cols).max(6);
+                let tile_h = (video_area.height as u32 / rows).max(4);
+                // Content area inside borders
+                let inner_w = (tile_w as u16).saturating_sub(2);
+                let inner_h = (tile_h as u16).saturating_sub(2);
 
-                // Render remote tiles in grid
                 for (i, (identity, rgb, w, h)) in video_parts.iter().enumerate() {
                     let col = i as u32 % cols;
                     let row = i as u32 / cols;
                     let x = video_area.x + (col * tile_w) as u16;
                     let y = video_area.y + (row * tile_h) as u16;
-                    let tile_rect = ratatui::layout::Rect::new(x, y, tile_w as u16, tile_h as u16);
+                    let tile_rect = Rect::new(x, y, tile_w as u16, tile_h as u16);
 
-                    // Ensure tile doesn't overflow
                     if tile_rect.right() > video_area.right() || tile_rect.bottom() > video_area.bottom() {
                         continue;
                     }
 
-                    let lines = render_video_lines(rgb, *w, *h, tile_w, tile_h, state.render_mode);
-                    let w = Paragraph::new(lines)
-                        .block(Block::default().title(format!(" {} ", identity)).borders(Borders::ALL).style(Style::default().fg(Color::Green)));
-                    frame.render_widget(w, tile_rect);
+                    let lines = render_video_lines(rgb, *w, *h, inner_w as u32, inner_h as u32, state.render_mode);
+                    frame.render_widget(Clear, tile_rect);
+                    frame.render_widget(
+                        Paragraph::new(lines)
+                            .block(Block::default().title(format!(" {} ", identity)).borders(Borders::ALL).style(Style::default().fg(Color::Green))),
+                        tile_rect,
+                    );
                 }
 
                 // Self-view PiP in top-right corner
                 if let Some((lrgb, lw, lh)) = local_video {
-                    let pip_w = (tile_w / 2).max(4);
-                    let pip_h = (tile_h / 2).max(2);
-                    let pip_lines = render_video_lines(&lrgb, lw, lh, pip_w, pip_h, state.render_mode);
-                    let pip_x = video_area.right() - pip_w as u16 - 1;
+                    let pip_w = (tile_w / 3).max(4) as u16;
+                    let pip_h = (tile_h / 3).max(2) as u16;
+                    let inner_pip_w = pip_w.saturating_sub(2);
+                    let inner_pip_h = pip_h.saturating_sub(2);
+                    let pip_x = video_area.right().saturating_sub(pip_w).saturating_sub(1);
                     let pip_y = video_area.y + 1;
-                    let pip_area = ratatui::layout::Rect::new(pip_x, pip_y, pip_w as u16, pip_h as u16);
+                    let pip_area = Rect::new(pip_x, pip_y, pip_w, pip_h);
                     if pip_area.right() <= video_area.right() && pip_area.bottom() <= video_area.bottom() {
-                        let pip_widget = Paragraph::new(pip_lines)
-                            .block(Block::default().title(" You ").borders(Borders::ALL).style(Style::default().fg(Color::Cyan)));
-                        frame.render_widget(pip_widget, pip_area);
+                        let pip_lines = render_video_lines(&lrgb, lw, lh, inner_pip_w as u32, inner_pip_h as u32, state.render_mode);
+                        frame.render_widget(Clear, pip_area);
+                        frame.render_widget(
+                            Paragraph::new(pip_lines)
+                                .block(Block::default().title(" You ").borders(Borders::ALL).style(Style::default().fg(Color::Cyan))),
+                            pip_area,
+                        );
                     }
                 }
             }
