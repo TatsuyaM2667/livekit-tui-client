@@ -20,16 +20,16 @@ echo "[*] Detected OS: $OS"
 # 1. Install System Dependencies
 echo "[*] Installing system dependencies..."
 if [[ "$OS" == "arch" || "$OS_LIKE" == *"arch"* ]]; then
-    sudo pacman -Sy --needed --noconfirm base-devel openssl alsa-lib git curl wget unzip zig odin pkgconf glib2 pulseaudio
+    sudo pacman -Sy --needed --noconfirm base-devel openssl clang alsa-lib git curl wget unzip zig odin pkgconf glib2 pulseaudio
 elif [[ "$OS" == "ubuntu" || "$OS" == "debian" || "$OS_LIKE" == *"debian"* ]]; then
     sudo apt-get update
-    sudo apt-get install -y build-essential libssl-dev libasound2-dev libpulse-dev git curl wget unzip pkg-config libglib2.0-dev
+    sudo apt-get install -y build-essential libssl-dev libclang-dev libasound2-dev libpulse-dev git curl wget unzip pkg-config libglib2.0-dev
 elif [[ "$OS" == "fedora" || "$OS" == "almalinux" || "$OS" == "rocky" || "$OS_LIKE" == *"rhel"* ]]; then
-    sudo dnf install -y openssl-devel alsa-lib-devel pulseaudio-libs-devel gcc git curl wget unzip pkgconf-pkg-config glib2-devel
+    sudo dnf install -y openssl-devel clang-devel alsa-lib-devel pulseaudio-libs-devel gcc git curl wget unzip pkgconf-pkg-config glib2-devel
 elif [[ "$OS" == "opensuse"* || "$OS_LIKE" == *"suse"* ]]; then
-    sudo zypper install -y libopenssl-devel alsa-devel gcc git curl wget unzip pkg-config glib2-devel zig libpulse-devel
+    sudo zypper install -y libopenssl-devel clang-devel alsa-devel gcc git curl wget unzip pkg-config glib2-devel zig libpulse-devel
 else
-    echo "[!] Unsupported package manager. Please install alsa-lib-devel and openssl-devel manually."
+    echo "[!] Unsupported package manager. Please install alsa-devel, openssl-devel, and clang-devel manually."
 fi
 
 # 2. Install Rust
