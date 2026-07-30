@@ -32,7 +32,7 @@ RustとRatatuiを使って構築された、ターミナル上で動作するSNS
 
 ### 1. アプリの起動と設定
 
-通話したい各デバイスで以下を実行します。
+通話したい各デバイスで以下を実行
 
 ```bash
 cargo run
@@ -40,32 +40,36 @@ cargo run
 livekit-tui-client
 ```
 
-起動後、ログイン画面にて以下の情報を入力します（`[Tab]` キーで項目を移動します）：
+起動後、ログイン画面にて以下の情報を入力（`[Tab]` キーで項目を移動）：
+
 - **Username**: あなたの名前
 - **LiveKit URL**: (例: `wss://your-livekit-server.example.com`)
 - **API Key**: LiveKit APIキー
 - **API Secret**: LiveKit シークレット
 
 > **設定の保存について**
-> 入力した情報はログイン成功時に `~/.config/livekit-tui-client/config.toml` へ自動で保存されます。次回起動時に入力を省略できます。
-> また、ログイン後は `[s]` キーで **Settings** 画面を開き、APIキーなどを再編集することも可能です。ターミナルのコピー＆ペースト（Ctrl+Vなど）にも対応しています。
+> 入力した情報はログイン成功時に `~/.config/livekit-tui-client/config.toml` へ自動で保存されるため次回起動時に入力を省略が可能。
+> また、ログイン後は `[s]` キーで **Settings** 画面を開き、APIキーなどを再編集することも可能。ターミナルのコピー＆ペースト（Ctrl+Vなど）にも対応。
 
 ---
 
 ## 使い方
 
-| 画面 | 操作キー |
-|------|---------|
-| **ログイン画面** | `[Tab]`で項目移動、名前等を入力して `[Enter]` で接続 |
-| **ユーザー一覧** | `[↑↓]` で選択、`[Enter]` で発信、`[s]` で設定、`[j]` でグループ通話ルームに入室、`[q]` で終了 |
-| **設定画面 (Settings)** | `[Tab]` で項目移動、`[Enter]` で保存して戻る |
-| **着信画面** | `[y]` で受話、`[n]` で拒否 |
-| **通話中** | `[m]` でマイクOn/Off、`[r]` で描画モード切替(Odin/Zig)、`[q]` or `[Esc]` で終了 |
+| 画面                    | 操作キー                                                                                      |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| **ログイン画面**        | `[Tab]`で項目移動、名前等を入力して `[Enter]` で接続                                          |
+| **ユーザー一覧**        | `[↑↓]` で選択、`[Enter]` で発信、`[s]` で設定、`[j]` でグループ通話ルームに入室、`[q]` で終了 |
+| **設定画面 (Settings)** | `[Tab]` で項目移動、`[Enter]` で保存して戻る                                                  |
+| **着信画面**            | `[y]` で受話、`[n]` で拒否                                                                    |
+| **通話中**              | `[m]` でマイクOn/Off、`[r]` で描画モード切替(Odin/Zig)、`[q]` or `[Esc]` で終了               |
 
 > **動画描画モードについて**
-> 通話中、`[r]` キーを押すことで動的に描画エンジンを切り替えられます。
+> 通話中、`[r]` キーを押すことで動的に描画エンジンを切り替え。
+>
 > - **Odin (Braille)**: 高解像度なピクセルアニメーション描画
 > - **Zig (HalfBlock)**: 従来のモザイク風ブロック描画
+>
+> 両エンジンは [`terminal-pixel-animation`](https://github.com/TatsuyaM2667/terminal-pixel-animation) としてOSS公開している自作ライブラリです。（Odin + Zig で実装）。
 
 ---
 
@@ -75,7 +79,7 @@ livekit-tui-client
 2. ルーム名を入力（例: `team-meeting-2024`）
 3. `[Enter]` で入室
 
-同じルーム名を入力した全メンバーと接続され、Zoomのようなグリッドレイアウトで参加者の映像が表示されます。自己映像は右上にPiP表示されます。
+同じルーム名を入力した全メンバーと接続され、グリッドレイアウトで参加者の映像が表示。自己映像は右上にPiP表示。
 
 ---
 
@@ -89,23 +93,27 @@ livekit-tui-client
 
 ## Linux向けインストール
 
-様々なLinuxディストリビューション（Arch, Ubuntu, Debian, Fedora, openSUSE, AlmaLinux 等）に対応した導入方法を用意しています。
+様々なLinuxディストリビューション（Arch, Ubuntu, Debian, Fedora, openSUSE, AlmaLinux 等）に対応した導入方法を用意している。
 
 ### 【推奨】1クリック自動インストール (全Distro対応)
-依存関係（Rust, Zig, Odin, ALSA等のシステムライブラリ）のインストールからビルドまでを全て自動で行うスクリプトです。ターミナルに以下の1行を貼り付けて実行するだけで構築が完了します。
+
+依存関係（Rust, Zig, Odin, ALSA等のシステムライブラリ）のインストールからビルドまでを全て自動で行うスクリプトである。ターミナルに以下の1行を貼り付けて実行するだけで構築が完了する。
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/TatsuyaM2667/livekit-tui-client/master/install.sh | bash
 ```
-> ※ スクリプト内でパッケージマネージャ(`apt`, `dnf`, `pacman`, `zypper`)を自動検知して処理します。インストール後は `livekit-tui-client` コマンドでどこからでも起動できます。
+
+> ※ スクリプト内でパッケージマネージャ(`apt`, `dnf`, `pacman`, `zypper`)を自動検知して処理します。インストール後は `livekit-tui-client` コマンドでどこからでも起動が可能。
 
 ---
 
 ### パッケージマネージャを使う場合 (AUR / RPM)
-手動でパッケージとしてシステムにインストールしたい場合は以下の手順をご利用ください。
+
+手動でパッケージとしてシステムにインストールする場合は以下の手順
 
 #### Arch Linux系 (yay, paru)
-Arch LinuxやManjaroなどの環境では、AURに登録されている `livekit-tui-client-git` をインストールできます。
+
+Arch LinuxやManjaroなどの環境では、AURに登録されている `livekit-tui-client-git` をインストールが可能。
 
 ```bash
 paru -S livekit-tui-client-git
@@ -114,6 +122,7 @@ yay -S livekit-tui-client-git
 ```
 
 ### Fedora, openSUSE, RHEL系 (RPM)
+
 RPM系の環境では、同梱的 `livekit-tui-client.spec` を使用してRPMパッケージを作成し、インストールすることができます。
 
 ```bash
