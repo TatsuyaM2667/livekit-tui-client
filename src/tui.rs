@@ -28,7 +28,8 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
         AppScreen::JoinRoom => " Join Room ".to_string(),
         AppScreen::InCall => {
             let mic_status = if state.is_muted { "OFF (Muted)" } else { "ON (Active)" };
-            format!(" In Call | Mic: {} ", mic_status)
+            let room_info = if state.room_name.is_empty() { String::new() } else { format!(" | Room: {}", state.room_name) };
+            format!(" In Call | Mic: {}{} ", mic_status, room_info)
         },
         AppScreen::Error(_) => " Error ".to_string(),
     };
@@ -155,16 +156,38 @@ pub fn render_ui(frame: &mut Frame, state: &AppState) {
         }
         AppScreen::JoinRoom => {
             let mut lines = vec![
-                Line::from(Span::styled("Join a room to start a group call", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("Group Call / Join Room", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
                 Line::from(""),
-                Line::from("Enter a room name. Anyone in the same room can see and hear each other."),
+                Line::from(Span::styled("Anyone who joins the same room can see and hear each other.", Style::default().fg(Color::DarkGray))),
+                Line::from(Span::styled("Use a unique name so others can find you.", Style::default().fg(Color::DarkGray))),
+                Line::from(""),
+                Line::from(Span::styled("Room name:", Style::default().fg(Color::White))),
                 Line::from(""),
             ];
             let cursor = "\u{2588}";
-            let display = if state.input_buffer.is_empty() { "Type room name...".to_string() } else { state.input_buffer.clone() };
+            let display = if state.input_buffer.is_empty() {
+                "e.g. team-meeting-2024".to_string()
+            } else {
+                state.input_buffer.clone()
+            };
+            let style = if state.input_buffer.is_empty() {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            };
             lines.push(Line::from(Span::styled(
-                format!("Room: {}{}", display, cursor),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                format!("  {}{}", display, cursor),
+                style,
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Press [Enter] to join — Press [Esc] to cancel",
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Tip: Share the room name with others so they can join too!",
+                Style::default().fg(Color::Green),
             )));
             let widget = Paragraph::new(lines)
                 .alignment(Alignment::Left)

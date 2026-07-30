@@ -35,6 +35,7 @@ pub struct AppState {
     pub livekit_lobby: Option<Room>,   // Persistent lobby room for presence & signaling
     pub livekit_room: Option<Room>,    // Active call room
     pub is_muted: bool,
+    pub room_name: String,
     pub remote_video_frames: Arc<Mutex<HashMap<String, (Vec<u8>, u32, u32)>>>,
     pub local_video_frame: Arc<Mutex<Option<(Vec<u8>, u32, u32)>>>,
     pub render_mode: RenderMode,
@@ -58,6 +59,7 @@ impl AppState {
             livekit_lobby: None,
             livekit_room: None,
             is_muted: false,
+            room_name: String::new(),
             remote_video_frames: Arc::new(Mutex::new(HashMap::new())),
             local_video_frame: Arc::new(Mutex::new(None)),
             audio_input_level: Arc::new(Mutex::new(0.0)),

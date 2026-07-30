@@ -404,6 +404,7 @@ async fn main() -> Result<()> {
                                 if let Some(r) = state.livekit_room.take() {
                                     let _ = r.close().await;
                                 }
+                                state.room_name.clear();
                                 state.screen = AppScreen::ContactList;
                             }
                             KeyCode::Char('m') => {
@@ -433,6 +434,7 @@ async fn main() -> Result<()> {
                                             Ok(token) => {
                                                 match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
                                                     Ok((call_room, rx_call)) => {
+                                                        state.room_name = room_name;
                                                         state.screen = AppScreen::InCall;
                                                         audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
                                                         video::setup_camera(&call_room, state.local_video_frame.clone()).await;
