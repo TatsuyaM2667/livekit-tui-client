@@ -172,14 +172,17 @@ fn start_capture(
 ) -> bool {
     let sample_rate = config.sample_rate().0;
     let channels = config.channels() as u32;
-    let src = audio_source.clone();
     let level = input_level.clone();
     let name = dev_name.to_string();
+
+    // Channel: cpal callback (sync) → tokio task (async for capture_frame)
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<i16>>();
 
     let err_fn = move |err| eprintln!("[audio] {} capture error: {}", name, err);
 
     let stream_res = match config.sample_format() {
         cpal::SampleFormat::F32 => {
+            let tx = tx.clone();
             let level = level.clone();
             device.build_input_stream(
                 &config.clone().into(),
@@ -187,26 +190,26 @@ fn start_capture(
                     let rms = compute_rms_level_f32(data);
                     { let mut l = level.lock().unwrap(); *l = rms; }
                     let pcm16: Vec<i16> = data.iter().map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16).collect();
-                    let samples_per_channel = (pcm16.len() as u32) / channels;
-                    let _ = src.capture_frame(&AudioFrame { data: pcm16.into(), sample_rate, num_channels: channels, samples_per_channel });
+                    let _ = tx.send(pcm16);
                 },
                 err_fn, None,
             )
         }
         cpal::SampleFormat::I16 => {
+            let tx = tx.clone();
             let level = level.clone();
             device.build_input_stream(
                 &config.clone().into(),
                 move |data: &[i16], _: &_| {
                     let rms = compute_rms_level_i16(data);
                     { let mut l = level.lock().unwrap(); *l = rms; }
-                    let samples_per_channel = (data.len() as u32) / channels;
-                    let _ = src.capture_frame(&AudioFrame { data: data.to_vec().into(), sample_rate, num_channels: channels, samples_per_channel });
+                    let _ = tx.send(data.to_vec());
                 },
                 err_fn, None,
             )
         }
         cpal::SampleFormat::U16 => {
+            let tx = tx.clone();
             let level = level.clone();
             device.build_input_stream(
                 &config.clone().into(),
@@ -214,8 +217,7 @@ fn start_capture(
                     let pcm16: Vec<i16> = data.iter().map(|&s| (s as i32 - 32768).clamp(-32768, 32767) as i16).collect();
                     let rms = compute_rms_level_i16(&pcm16);
                     { let mut l = level.lock().unwrap(); *l = rms; }
-                    let samples_per_channel = (pcm16.len() as u32) / channels;
-                    let _ = src.capture_frame(&AudioFrame { data: pcm16.into(), sample_rate, num_channels: channels, samples_per_channel });
+                    let _ = tx.send(pcm16);
                 },
                 err_fn, None,
             )
@@ -231,6 +233,22 @@ fn start_capture(
             }
             eprintln!("[audio] Capture started on {}", dev_name);
             std::mem::forget(stream);
+
+            // Spawn async task to forward frames to WebRTC
+            let src = audio_source.clone();
+            tokio::spawn(async move {
+                while let Some(pcm16) = rx.recv().await {
+                    let samples_per_channel = (pcm16.len() as u32) / channels;
+                    if let Err(e) = src.capture_frame(&AudioFrame {
+                        data: pcm16.into(),
+                        sample_rate,
+                        num_channels: channels,
+                        samples_per_channel,
+                    }).await {
+                        eprintln!("[audio] capture_frame error: {}", e);
+                    }
+                }
+            });
             true
         }
         Err(e) => {
