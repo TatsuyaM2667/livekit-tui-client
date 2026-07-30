@@ -25,9 +25,9 @@ elif [[ "$OS" == "ubuntu" || "$OS" == "debian" || "$OS_LIKE" == *"debian"* ]]; t
     sudo apt-get update
     sudo apt-get install -y build-essential libssl-dev libclang-dev libasound2-dev libpulse-dev git curl wget unzip pkg-config libglib2.0-dev
 elif [[ "$OS" == "fedora" || "$OS" == "almalinux" || "$OS" == "rocky" || "$OS_LIKE" == *"rhel"* ]]; then
-    sudo dnf install -y openssl-devel clang-devel alsa-lib-devel pulseaudio-libs-devel gcc git curl wget unzip pkgconf-pkg-config glib2-devel
+    sudo dnf install -y openssl-devel clang-devel alsa-lib-devel pulseaudio-libs-devel gcc gcc-c++ git curl wget unzip pkgconf-pkg-config glib2-devel
 elif [[ "$OS" == "opensuse"* || "$OS_LIKE" == *"suse"* ]]; then
-    sudo zypper install -y libopenssl-devel clang-devel alsa-devel gcc git curl wget unzip pkg-config glib2-devel zig libpulse-devel
+    sudo zypper install -y libopenssl-devel clang-devel alsa-devel gcc gcc-c++ git curl wget unzip pkg-config glib2-devel zig libpulse-devel
 else
     echo "[!] Unsupported package manager. Please install alsa-devel, openssl-devel, and clang-devel manually."
 fi
@@ -137,7 +137,7 @@ if [ ! -f "Cargo.toml" ] || ! grep -q "livekit-tui-client" Cargo.toml; then
 fi
 
 echo "[*] Compiling with Cargo..."
-cargo install --path .
+cargo install --locked --path .
 
 # 5. Cleanup old binary if it exists
 if [ -f "$HOME/.cargo/bin/client" ]; then
