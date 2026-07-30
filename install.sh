@@ -76,7 +76,25 @@ if ! command -v odin &> /dev/null; then
     fi
 
     echo "[*] Downloading Odin from ${ODIN_URL} ..."
-    if ! wget -qO /tmp/odin.zip "$ODIN_URL"; then
+
+    # Detect archive type from URL
+    case "$ODIN_URL" in
+        *.tar.gz|*.tgz)
+            ARCHIVE="/tmp/odin.tar.gz"
+            EXTRACT_CMD="tar -xzf"
+            ;;
+        *.zip)
+            ARCHIVE="/tmp/odin.zip"
+            EXTRACT_CMD="unzip -q"
+            ;;
+        *)
+            echo "[!] Unknown archive format: $ODIN_URL"
+            echo "    Please install Odin manually: https://odin-lang.org/docs/install/"
+            exit 1
+            ;;
+    esac
+
+    if ! wget -qO "$ARCHIVE" "$ODIN_URL"; then
         echo "[!] Failed to download Odin. Please install manually:"
         echo "    https://odin-lang.org/docs/install/"
         exit 1
@@ -84,7 +102,12 @@ if ! command -v odin &> /dev/null; then
 
     rm -rf /tmp/odin_extracted
     mkdir -p /tmp/odin_extracted
-    unzip -q /tmp/odin.zip -d /tmp/odin_extracted
+
+    if [ "$EXTRACT_CMD" = "unzip -q" ]; then
+        unzip -q "$ARCHIVE" -d /tmp/odin_extracted
+    else
+        tar -xzf "$ARCHIVE" -C /tmp/odin_extracted
+    fi
 
     # Handle nested top-level directory (common in Odin releases)
     cd /tmp/odin_extracted
@@ -95,7 +118,7 @@ if ! command -v odin &> /dev/null; then
     cp -r ./* "$INSTALL_DIR/"
     chmod +x "$INSTALL_DIR/odin" 2>/dev/null || true
     cd /
-    rm -rf /tmp/odin.zip /tmp/odin_extracted
+    rm -rf "$ARCHIVE" /tmp/odin_extracted
 fi
 
 # Ensure ~/.local/bin is in PATH for the rest of the script
