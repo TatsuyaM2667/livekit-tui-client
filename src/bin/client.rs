@@ -7,7 +7,7 @@ use crossterm::{
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use livekit::prelude::*;
 use livekit_tui_client::{
-    app_state::{AppScreen, AppState},
+    app_state::{AppScreen, AppState, StatusKind},
     audio, config, events,
     shared::SignalingMessage,
     tui, video,
@@ -69,8 +69,6 @@ fn create_token(api_key: &str, api_secret: &str, identity: &str, room: &str) -> 
 
 // ── Data Channel helpers ──────────────────────────────────────────────────────
 
-/// Send a SignalingMessage to a specific participant via LiveKit Data Channel.
-/// We broadcast to all (reliable) and filter on the receiver side by `to` field.
 async fn send_signaling(room: &Room, msg: &SignalingMessage) -> Result<()> {
     let json = serde_json::to_string(msg)?;
     room.local_participant()
@@ -101,10 +99,7 @@ async fn main() -> Result<()> {
 
     audio::diagnose_audio();
 
-    // Channel for signaling messages received from Data Channel
     let (tx_sig, mut rx_sig) = mpsc::unbounded_channel::<SignalingMessage>();
-
-    // Shared state for lobby room events (participant list updates)
     let participant_list: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     loop {
@@ -112,7 +107,7 @@ async fn main() -> Result<()> {
             tui::render_ui(frame, &state);
         })?;
 
-        // ── Login screen: enter username and join lobby ───────────────────────
+        // ── Login screen ─────────────────────────────────────────────────────
         if state.screen == AppScreen::Login {
             if event::poll(Duration::from_millis(50))? {
                 match event::read()? {
@@ -139,7 +134,6 @@ async fn main() -> Result<()> {
                                                         livekit_tui_client::app_state::RenderMode::HalfBlock => "halfblock".to_string(),
                                                     };
 
-                                                    // Save config on successful login
                                                     let _ = config::save(&livekit_tui_client::config::Config {
                                                         livekit_url: state.livekit_url.clone(),
                                                         api_key: state.api_key.clone(),
@@ -148,7 +142,6 @@ async fn main() -> Result<()> {
                                                         render_mode: Some(mode_str),
                                                     });
 
-                                                    // Collect current participants
                                                     {
                                                         let mut list = participant_list.lock().unwrap();
                                                         *list = lobby
@@ -158,11 +151,12 @@ async fn main() -> Result<()> {
                                                             .collect();
                                                     }
                                                     state.users = participant_list.lock().unwrap().clone();
-
                                                     state.livekit_lobby = Some(lobby);
-                                                    state.screen = AppScreen::ContactList;
 
-                                                    // Spawn lobby event handler
+                                                    // ログイン後は RoomBrowser を最初に表示
+                                                    state.selected_index = 0;
+                                                    state.screen = AppScreen::RoomBrowser;
+
                                                     let tx_sig_clone = tx_sig.clone();
                                                     let pl_clone = participant_list.clone();
                                                     let my_name = username.clone();
@@ -172,13 +166,13 @@ async fn main() -> Result<()> {
                                                 }
                                                 Err(e) => {
                                                     state.screen = AppScreen::Error(
-                                                        format!("Failed to connect to LiveKit: {}", e),
+                                                        format!("LiveKit 接続失敗: {}", e),
                                                     );
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            state.screen = AppScreen::Error(format!("Token error: {}", e));
+                                            state.screen = AppScreen::Error(format!("トークンエラー: {}", e));
                                         }
                                     }
                                 }
@@ -206,7 +200,6 @@ async fn main() -> Result<()> {
                         }
                     }
                     Event::Paste(text) => {
-                        // strip newlines to prevent weird cursor breaks in text inputs
                         let safe_text = text.replace('\n', "").replace('\r', "");
                         match state.active_input_index {
                             0 => state.input_buffer.push_str(&safe_text),
@@ -222,14 +215,13 @@ async fn main() -> Result<()> {
             continue;
         }
 
-        // ── Handle incoming signaling messages from lobby Data Channel ─────────
+        // ── Incoming signaling messages ───────────────────────────────────────
         while let Ok(msg) = rx_sig.try_recv() {
             match &msg {
                 SignalingMessage::CallRequest { from, to } if to == &state.username => {
                     if state.screen == AppScreen::ContactList {
                         state.screen = AppScreen::Ringing { caller: from.clone() };
                     } else {
-                        // Busy — auto-reject
                         if let Some(lobby) = &state.livekit_lobby {
                             let reject = SignalingMessage::CallRejected {
                                 from: state.username.clone(),
@@ -240,7 +232,6 @@ async fn main() -> Result<()> {
                     }
                 }
                 SignalingMessage::CallAccepted { from, to, room } if to == &state.username => {
-                    // We are the caller — join the call room
                     let room_name = room.clone();
                     let callee = from.clone();
                     match create_token(&state.api_key, &state.api_secret, &state.username, &room_name) {
@@ -250,24 +241,32 @@ async fn main() -> Result<()> {
                                     state.screen = AppScreen::InCall;
                                     audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
                                     video::setup_camera(&call_room, state.local_video_frame.clone()).await;
-                                    events::handle_room_events(rx_call, state.remote_video_frames.clone(), state.audio_output_level.clone());
+                                    events::handle_room_events(
+                                        rx_call,
+                                        state.remote_video_frames.clone(),
+                                        state.audio_output_level.clone(),
+                                        state.status_messages.clone(),
+                                        state.participant_quality.clone(),
+                                        state.disconnected_peer.clone(),
+                                        state.username.clone(),
+                                    );
                                     state.livekit_room = Some(call_room);
                                 }
                                 Err(e) => {
                                     state.screen = AppScreen::Error(format!(
-                                        "Failed to join call room with {}: {}", callee, e
+                                        "{} との通話参加に失敗: {}", callee, e
                                     ));
                                 }
                             }
                         }
                         Err(e) => {
-                            state.screen = AppScreen::Error(format!("Token error: {}", e));
+                            state.screen = AppScreen::Error(format!("トークンエラー: {}", e));
                         }
                     }
                 }
                 SignalingMessage::CallRejected { from, to } if to == &state.username => {
                     if let AppScreen::Calling { .. } = &state.screen {
-                        state.screen = AppScreen::Error(format!("{} rejected the call.", from));
+                        state.screen = AppScreen::Error(format!("{} が通話を拒否しました", from));
                     }
                 }
                 SignalingMessage::CallEnded { from, .. } => {
@@ -277,26 +276,120 @@ async fn main() -> Result<()> {
                         }
                         state.screen = AppScreen::ContactList;
                     }
-                    let _ = from; // suppress unused warning
+                    let _ = from;
                 }
-                _ => {} // Message not addressed to us
+                SignalingMessage::RoomAnnounce { from, room } => {
+                    if from != &state.username {
+                        let mut list = state.announced_rooms.lock().unwrap();
+                        if !list.iter().any(|r| r.owner == *from && r.name == *room) {
+                            list.push(livekit_tui_client::app_state::AnnouncedRoom {
+                                owner: from.clone(),
+                                name: room.clone(),
+                            });
+                        }
+                    }
+                }
+                SignalingMessage::RoomRemove { from, room } => {
+                    let mut list = state.announced_rooms.lock().unwrap();
+                    list.retain(|r| !(r.owner == *from && r.name == *room));
+                }
+                SignalingMessage::RoomInvite { from, to, room } if to == &state.username => {
+                    let msg_text = format!("{} から \"{}\" に招待されました。[j] で参加できます", from, room);
+                    state.push_status(msg_text, StatusKind::Info);
+                }
+                _ => {}
             }
         }
 
-        // ── Update participant list from shared state ──────────────────────────
+        // ── Update participant list ───────────────────────────────────────────
         {
             let list = participant_list.lock().unwrap().clone();
             state.users = list;
-            if state.selected_index >= state.users.len() && !state.users.is_empty() {
-                state.selected_index = state.users.len() - 1;
-            }
+            // selected_index の境界チェックはスクリーン毎に行う
         }
 
-        // ── Handle keyboard input ─────────────────────────────────────────────
+        // ── Keyboard input ────────────────────────────────────────────────────
         if event::poll(Duration::from_millis(50))? {
             match event::read()? {
                 Event::Key(key) => {
+                    // InCall 中に切断ポップアップが出ている場合、任意キーで閉じる
+                    if let AppScreen::InCall = &state.screen {
+                        let has_disconnected = {
+                            let d = state.disconnected_peer.lock().unwrap();
+                            d.is_some()
+                        };
+                        if has_disconnected {
+                            let mut d = state.disconnected_peer.lock().unwrap();
+                            *d = None;
+                            continue;
+                        }
+                    }
+
                     match &state.screen {
+                        AppScreen::RoomBrowser => {
+                            let announced = {
+                                let a = state.announced_rooms.lock().unwrap();
+                                a.clone()
+                            };
+                            match key.code {
+                                KeyCode::Up => {
+                                    if state.selected_index > 0 {
+                                        state.selected_index -= 1;
+                                    }
+                                }
+                                KeyCode::Down => {
+                                    if !announced.is_empty() && state.selected_index < announced.len() - 1 {
+                                        state.selected_index += 1;
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    if !announced.is_empty() {
+                                        let room = announced[state.selected_index].clone();
+                                        match create_token(&state.api_key, &state.api_secret, &state.username, &room.name) {
+                                            Ok(token) => {
+                                                match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
+                                                    Ok((call_room, rx_call)) => {
+                                                        state.room_name = room.name.clone();
+                                                        state.screen = AppScreen::InCall;
+                                                        audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
+                                                        video::setup_camera(&call_room, state.local_video_frame.clone()).await;
+                                                        events::handle_room_events(
+                                                            rx_call,
+                                                            state.remote_video_frames.clone(),
+                                                            state.audio_output_level.clone(),
+                                                            state.status_messages.clone(),
+                                                            state.participant_quality.clone(),
+                                                            state.disconnected_peer.clone(),
+                                                            state.username.clone(),
+                                                        );
+                                                        state.livekit_room = Some(call_room);
+                                                    }
+                                                    Err(e) => {
+                                                        state.screen = AppScreen::Error(format!("ルーム参加失敗: {}", e));
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                state.screen = AppScreen::Error(format!("トークンエラー: {}", e));
+                                            }
+                                        }
+                                    }
+                                }
+                                KeyCode::Char('c') => {
+                                    state.selected_index = 0;
+                                    state.screen = AppScreen::ContactList;
+                                }
+                                KeyCode::Char('j') => {
+                                    state.input_buffer.clear();
+                                    state.screen = AppScreen::JoinRoom;
+                                }
+                                KeyCode::Esc | KeyCode::Char('q') => {
+                                    state.selected_index = 0;
+                                    state.screen = AppScreen::ContactList;
+                                }
+                                _ => {}
+                            }
+                        }
                         AppScreen::ContactList => {
                             let filtered: Vec<String> = state
                                 .users
@@ -334,6 +427,10 @@ async fn main() -> Result<()> {
                                     state.input_buffer.clear();
                                     state.screen = AppScreen::JoinRoom;
                                 }
+                                KeyCode::Char('b') => {
+                                    state.selected_index = 0;
+                                    state.screen = AppScreen::RoomBrowser;
+                                }
                                 KeyCode::Char('s') => {
                                     state.active_input_index = 0;
                                     state.screen = AppScreen::Settings;
@@ -346,14 +443,12 @@ async fn main() -> Result<()> {
                             let caller = caller.clone();
                             match key.code {
                                 KeyCode::Char('y') => {
-                                    // Accept: create call room, send CallAccepted, join room
                                     let room_name = format!("call_{}_{}", caller, state.username);
                                     let my_name = state.username.clone();
                                     match create_token(&state.api_key, &state.api_secret, &my_name, &room_name) {
                                         Ok(token) => {
                                             match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
                                                 Ok((call_room, rx_call)) => {
-                                                    // Notify caller
                                                     if let Some(lobby) = &state.livekit_lobby {
                                                         let accepted = SignalingMessage::CallAccepted {
                                                             from: my_name.clone(),
@@ -365,18 +460,26 @@ async fn main() -> Result<()> {
                                                     state.screen = AppScreen::InCall;
                                                     audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
                                                     video::setup_camera(&call_room, state.local_video_frame.clone()).await;
-                                                    events::handle_room_events(rx_call, state.remote_video_frames.clone(), state.audio_output_level.clone());
+                                                    events::handle_room_events(
+                                                        rx_call,
+                                                        state.remote_video_frames.clone(),
+                                                        state.audio_output_level.clone(),
+                                                        state.status_messages.clone(),
+                                                        state.participant_quality.clone(),
+                                                        state.disconnected_peer.clone(),
+                                                        state.username.clone(),
+                                                    );
                                                     state.livekit_room = Some(call_room);
                                                 }
                                                 Err(e) => {
                                                     state.screen = AppScreen::Error(format!(
-                                                        "Failed to join call room: {}", e
+                                                        "通話ルーム参加失敗: {}", e
                                                     ));
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            state.screen = AppScreen::Error(format!("Token error: {}", e));
+                                            state.screen = AppScreen::Error(format!("トークンエラー: {}", e));
                                         }
                                     }
                                 }
@@ -405,6 +508,11 @@ async fn main() -> Result<()> {
                                     let _ = r.close().await;
                                 }
                                 state.room_name.clear();
+                                // 切断ピア情報もリセット
+                                {
+                                    let mut d = state.disconnected_peer.lock().unwrap();
+                                    *d = None;
+                                }
                                 state.screen = AppScreen::ContactList;
                             }
                             KeyCode::Char('m') => {
@@ -430,36 +538,119 @@ async fn main() -> Result<()> {
                                 KeyCode::Enter => {
                                     let room_name = state.input_buffer.trim().to_string();
                                     if !room_name.is_empty() {
-                                        match create_token(&state.api_key, &state.api_secret, &state.username, &room_name) {
-                                            Ok(token) => {
-                                                match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
-                                                    Ok((call_room, rx_call)) => {
-                                                        state.room_name = room_name;
-                                                        state.screen = AppScreen::InCall;
-                                                        audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
-                                                        video::setup_camera(&call_room, state.local_video_frame.clone()).await;
-                                                        events::handle_room_events(rx_call, state.remote_video_frames.clone(), state.audio_output_level.clone());
-                                                        state.livekit_room = Some(call_room);
-                                                    }
-                                                    Err(e) => {
-                                                        state.screen = AppScreen::Error(format!("Failed to join room: {}", e));
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                state.screen = AppScreen::Error(format!("Token error: {}", e));
-                                            }
-                                        }
+                                        // InviteRoom 画面に遷移して招待ユーザーを選ばせる
+                                        state.selected_index = 0;
+                                        state.screen = AppScreen::InviteRoom {
+                                            room_name: room_name.clone(),
+                                            invited_users: Vec::new(),
+                                        };
                                     }
                                 }
                                 KeyCode::Esc => {
                                     state.screen = AppScreen::ContactList;
+                                }
+                                KeyCode::Char('p') => {
+                                    state.room_is_public = !state.room_is_public;
                                 }
                                 KeyCode::Char(c) => {
                                     state.input_buffer.push(c);
                                 }
                                 KeyCode::Backspace => {
                                     state.input_buffer.pop();
+                                }
+                                _ => {}
+                            }
+                        }
+                        AppScreen::InviteRoom { room_name, invited_users } => {
+                            let room_name = room_name.clone();
+                            let mut invited = invited_users.clone();
+                            let filtered: Vec<String> = state
+                                .users
+                                .iter()
+                                .filter(|u| *u != &state.username)
+                                .cloned()
+                                .collect();
+
+                            match key.code {
+                                KeyCode::Up => {
+                                    if state.selected_index > 0 {
+                                        state.selected_index -= 1;
+                                    }
+                                }
+                                KeyCode::Down => {
+                                    if !filtered.is_empty() && state.selected_index < filtered.len() - 1 {
+                                        state.selected_index += 1;
+                                    }
+                                }
+                                KeyCode::Char(' ') => {
+                                    // スペースでチェック/アンチェック
+                                    if !filtered.is_empty() {
+                                        let user = filtered[state.selected_index].clone();
+                                        if invited.contains(&user) {
+                                            invited.retain(|u| u != &user);
+                                        } else {
+                                            invited.push(user);
+                                        }
+                                        state.screen = AppScreen::InviteRoom {
+                                            room_name: room_name.clone(),
+                                            invited_users: invited.clone(),
+                                        };
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    // 招待メッセージを送信してルームに参加
+                                    let is_public = state.room_is_public;
+                                    match create_token(&state.api_key, &state.api_secret, &state.username, &room_name) {
+                                        Ok(token) => {
+                                            match Room::connect(&state.livekit_url, &token, RoomOptions::default()).await {
+                                                Ok((call_room, rx_call)) => {
+                                                    // 選択したユーザーに招待を送る
+                                                    if let Some(lobby) = &state.livekit_lobby {
+                                                        for user in &invited {
+                                                            let invite = SignalingMessage::RoomInvite {
+                                                                from: state.username.clone(),
+                                                                to: user.clone(),
+                                                                room: room_name.clone(),
+                                                            };
+                                                            let _ = send_signaling(lobby, &invite).await;
+                                                        }
+                                                        // 公開ルームの場合はアナウンス
+                                                        if is_public {
+                                                            let announce = SignalingMessage::RoomAnnounce {
+                                                                from: state.username.clone(),
+                                                                room: room_name.clone(),
+                                                            };
+                                                            let _ = send_signaling(lobby, &announce).await;
+                                                        }
+                                                    }
+                                                    state.room_name = room_name.clone();
+                                                    state.screen = AppScreen::InCall;
+                                                    audio_pub = audio::setup_microphone(&call_room, state.audio_input_level.clone()).await;
+                                                    video::setup_camera(&call_room, state.local_video_frame.clone()).await;
+                                                    events::handle_room_events(
+                                                        rx_call,
+                                                        state.remote_video_frames.clone(),
+                                                        state.audio_output_level.clone(),
+                                                        state.status_messages.clone(),
+                                                        state.participant_quality.clone(),
+                                                        state.disconnected_peer.clone(),
+                                                        state.username.clone(),
+                                                    );
+                                                    state.livekit_room = Some(call_room);
+                                                }
+                                                Err(e) => {
+                                                    state.screen = AppScreen::Error(format!("ルーム参加失敗: {}", e));
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            state.screen = AppScreen::Error(format!("トークンエラー: {}", e));
+                                        }
+                                    }
+                                }
+                                KeyCode::Esc => {
+                                    // JoinRoom に戻る
+                                    state.screen = AppScreen::JoinRoom;
                                 }
                                 _ => {}
                             }
@@ -485,7 +676,6 @@ async fn main() -> Result<()> {
                                         livekit_tui_client::app_state::RenderMode::Braille => "braille".to_string(),
                                         livekit_tui_client::app_state::RenderMode::HalfBlock => "halfblock".to_string(),
                                     };
-                                    // Save and go back
                                     let _ = config::save(&livekit_tui_client::config::Config {
                                         livekit_url: state.livekit_url.clone(),
                                         api_key: state.api_key.clone(),
@@ -543,6 +733,17 @@ async fn main() -> Result<()> {
     }
 
     // Cleanup
+    // 公開ルームを持っていた場合はルームリムーブを送信
+    if !state.room_name.is_empty() && state.room_is_public {
+        if let Some(lobby) = &state.livekit_lobby {
+            let remove = SignalingMessage::RoomRemove {
+                from: state.username.clone(),
+                room: state.room_name.clone(),
+            };
+            let _ = send_signaling(lobby, &remove).await;
+        }
+    }
+
     if let Some(room) = state.livekit_room {
         let _ = room.close().await;
     }
@@ -588,4 +789,3 @@ async fn handle_lobby_events(
         }
     }
 }
-

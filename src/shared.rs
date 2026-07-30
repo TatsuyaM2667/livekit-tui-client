@@ -15,4 +15,20 @@ pub enum SignalingMessage {
     CallRejected { from: String, to: String },
     /// Either side: "Hang up"
     CallEnded { from: String, to: String },
+    /// Room owner announces a public room to lobby
+    RoomAnnounce {
+        from: String,
+        room: String,
+    },
+    /// Room owner removes a public room listing
+    RoomRemove {
+        from: String,
+        room: String,
+    },
+    /// Invite a specific user to join a room
+    RoomInvite {
+        from: String,
+        to: String,
+        room: String,
+    },
 }
